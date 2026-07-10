@@ -1,26 +1,178 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/* ===== BASE ===== */
+html, body {
+  margin: 0;
+  padding: 0;
+  background-color: #f1f5f9;
+  color: #0f172a;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+/* ===== SIDEBAR SIEMPRE OSCURO ===== */
+aside {
+  background-color: #1e293b !important;
+  border-color: #334155 !important;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+aside * {
+  border-color: #334155;
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+aside .text-white,
+aside p,
+aside span.font-semibold {
+  color: #f1f5f9 !important;
+}
+
+aside .text-gray-400,
+aside .text-gray-500 {
+  color: #94a3b8 !important;
+}
+
+aside .border-gray-800 {
+  border-color: #334155 !important;
+}
+
+aside a:not(.bg-blue-600):hover {
+  background-color: #334155 !important;
+  color: #f1f5f9 !important;
+}
+
+aside button:hover {
+  background-color: #334155 !important;
+}
+
+/* ===== CONTENIDO PRINCIPAL ===== */
+main {
+  background-color: #f1f5f9 !important;
+}
+
+/* Títulos y textos principales */
+main h1, main h2, main h3 {
+  color: #0f172a !important;
+}
+
+main p.text-gray-400,
+main span.text-gray-400,
+main .text-gray-400 {
+  color: #64748b !important;
+}
+
+main .text-gray-500 {
+  color: #94a3b8 !important;
+}
+
+main .text-gray-300 {
+  color: #475569 !important;
+}
+
+main .text-white {
+  color: #0f172a !important;
+}
+
+/* Cards */
+main .bg-gray-900 {
+  background-color: #ffffff !important;
+  border-color: #e2e8f0 !important;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.06) !important;
+}
+
+main .bg-gray-800 {
+  background-color: #f8fafc !important;
+  border-color: #e2e8f0 !important;
+}
+
+main .bg-gray-950 {
+  background-color: #f1f5f9 !important;
+}
+
+/* Bordes */
+main .border-gray-800 {
+  border-color: #e2e8f0 !important;
+}
+
+main .border-gray-700 {
+  border-color: #cbd5e1 !important;
+}
+
+/* Inputs */
+main input,
+main select,
+main textarea {
+  background-color: #f8fafc !important;
+  border-color: #cbd5e1 !important;
+  color: #0f172a !important;
+}
+
+main input::placeholder,
+main textarea::placeholder {
+  color: #94a3b8 !important;
+}
+
+/* Tabla */
+main .divide-gray-800 > * {
+  border-color: #e2e8f0 !important;
+}
+
+main tr:hover {
+  background-color: #f8fafc !important;
+}
+
+main thead tr {
+  background-color: #f8fafc !important;
+}
+
+/* Texto en tabla */
+main td span.text-gray-400,
+main td span.text-gray-500,
+main td span.text-gray-600 {
+  color: #64748b !important;
+}
+
+/* Font mono (números de ticket) */
+main .font-mono {
+  color: #64748b !important;
+}
+
+/* ===== MODALES ===== */
+.fixed.inset-0 .bg-gray-900 {
+  background-color: #ffffff !important;
+  border-color: #e2e8f0 !important;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.15) !important;
+}
+
+.fixed.inset-0 .bg-gray-800 {
+  background-color: #f8fafc !important;
+  border-color: #e2e8f0 !important;
+}
+
+.fixed.inset-0 .text-white {
+  color: #0f172a !important;
+}
+
+.fixed.inset-0 .text-gray-400 {
+  color: #64748b !important;
+}
+
+.fixed.inset-0 .border-gray-800,
+.fixed.inset-0 .border-gray-700 {
+  border-color: #e2e8f0 !important;
+}
+
+.fixed.inset-0 input,
+.fixed.inset-0 select,
+.fixed.inset-0 textarea {
+  background-color: #f8fafc !important;
+  border-color: #cbd5e1 !important;
+  color: #0f172a !important;
+}
+
+.fixed.inset-0 input::placeholder,
+.fixed.inset-0 textarea::placeholder {
+  color: #94a3b8 !important;
+}
+
+/* ===== LOGIN ===== */
+.min-h-screen {
+  background-color: #1e293b !important;
 }
