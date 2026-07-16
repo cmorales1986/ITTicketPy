@@ -26,10 +26,14 @@ export async function findOrCreateUsuarioByEmail(email: string, nombre?: string)
   return usuario;
 }
 
-export async function findOrCreateUsuarioByWhatsapp(numero: string, nombre?: string) {
-  const existing = await db.query.usuarios.findFirst({
+export async function findUsuarioByWhatsapp(numero: string) {
+  return db.query.usuarios.findFirst({
     where: eq(usuarios.numeroWhatsApp, numero),
   });
+}
+
+export async function findOrCreateUsuarioByWhatsapp(numero: string, nombre?: string) {
+  const existing = await findUsuarioByWhatsapp(numero);
   if (existing) return existing;
 
   const digits = numero.replace(/[^0-9]/g, '');

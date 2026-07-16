@@ -6,15 +6,16 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useAuthStore } from '@/store/auth.store';
 import {
   LayoutDashboard, Ticket, Kanban,
-  Users, LogOut, ChevronRight, Menu, X,
+  Users, Tag, LogOut, ChevronRight, Menu, X,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
 const navItems = [
-  { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: [0, 1, 2] },
-  { href: '/tickets', label: 'Tickets', icon: Ticket, roles: [0, 1, 2] },
-  { href: '/kanban', label: 'Kanban', icon: Kanban, roles: [1, 2] },
-  { href: '/usuarios', label: 'Usuarios', icon: Users, roles: [2] },
+  { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: [0, 1, 2, 3] },
+  { href: '/tickets', label: 'Tickets', icon: Ticket, roles: [0, 1, 2, 3] },
+  { href: '/kanban', label: 'Kanban', icon: Kanban, roles: [1, 2, 3] },
+  { href: '/usuarios', label: 'Usuarios', icon: Users, roles: [2, 3] },
+  { href: '/categorias', label: 'Categorías', icon: Tag, roles: [2, 3] },
 ];
 
 export default function Sidebar() {
@@ -153,7 +154,13 @@ export default function Sidebar() {
                 {usuario?.nombre}
               </p>
               <p style={{ color: '#6b7280' }} className="text-xs">
-                {usuario?.rol === 2 ? 'Admin' : usuario?.rol === 1 ? 'Técnico' : 'Usuario'}
+                {usuario?.rol === 3
+                  ? 'Admin y Técnico'
+                  : usuario?.rol === 2
+                    ? 'Admin'
+                    : usuario?.rol === 1
+                      ? 'Técnico'
+                      : 'Usuario'}
               </p>
             </div>
           </div>

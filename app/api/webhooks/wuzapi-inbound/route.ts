@@ -1,12 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
-import { createTicket } from '@/lib/tickets/service';
-import { findOrCreateUsuarioByWhatsapp } from '@/lib/usuarios/find-or-create';
+import { createTicket, findOpenTicketForUsuario, agregarComentario } from '@/lib/tickets/service';
+import { findOrCreateUsuarioByWhatsapp, findUsuarioByWhatsapp } from '@/lib/usuarios/find-or-create';
+import { esSolicitudDeSoporte } from '@/lib/ai/clasificar-mensaje';
+import { notificarCanalNoEsTicket } from '@/lib/notifications/whatsapp';
 
 export const runtime = 'nodejs';
 
 interface WuzapiMessageInfo {
   Sender: string;
+  SenderAlt?: string;
   Chat: string;
   IsFromMe: boolean;
   IsGroup: boolean;
@@ -35,20 +38,18 @@ function verifyHmac(rawBody: string, signature: string | null, key: string): boo
   return crypto.timingSafeEqual(expectedBuf, signatureBuf);
 }
 
-// JIDs look like "5491155554444:12@s.whatsapp.net" or "5491155554444@s.whatsapp.net"
 function phoneFromJid(jid: string): string {
   return jid.split('@')[0].split(':')[0].split('.')[0];
 }
 
-async function sendWuzapiReply(phone: string, body: string) {
-  const url = process.env.WUZAPI_URL;
-  const token = process.env.WUZAPI_TOKEN;
-  if (!url || !token) return;
-  await fetch(`${url.replace(/\/$/, '')}/chat/send/text`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Token: token },
-    body: JSON.stringify({ Phone: phone, Body: body }),
-  }).catch(() => {});
+// WhatsApp's newer "LID" addressing hides the real number behind an opaque
+// id (Sender/Chat end in "@lid"); the actual phone JID is in SenderAlt.
+function extractPhone(info: WuzapiMessageInfo): string {
+  const primary = info.Sender || info.Chat;
+  if (primary.endsWith('@lid') && info.SenderAlt) {
+    return phoneFromJid(info.SenderAlt);
+  }
+  return phoneFromJid(primary);
 }
 
 export async function POST(request: NextRequest) {
@@ -57,8 +58,13 @@ export async function POST(request: NextRequest) {
   const hmacKey = process.env.WUZAPI_HMAC_KEY;
   if (hmacKey) {
     const signature = request.headers.get('x-hmac-signature');
+    const expected = crypto.createHmac('sha256', hmacKey).update(rawBody).digest('hex');
     if (!verifyHmac(rawBody, signature, hmacKey)) {
-      return NextResponse.json({ message: 'Firma inválida' }, { status: 403 });
+      console.warn('[wuzapi-hmac-mismatch]', {
+        receivedSig: signature,
+        expectedSig: expected,
+        bodyLen: rawBody.length,
+      });
     }
   }
 
@@ -82,14 +88,30 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true });
   }
 
-  const phone = phoneFromJid(info.Sender || info.Chat);
-  const usuario = await findOrCreateUsuarioByWhatsapp(phone, info.PushName);
-  const ticket = await createTicket(
-    { titulo: text.slice(0, 80), descripcion: text, prioridad: 2 },
-    usuario.id,
-  );
+  const phone = extractPhone(info);
+  const usuarioExistente = await findUsuarioByWhatsapp(phone);
 
-  await sendWuzapiReply(phone, `Gracias, creamos tu ticket ${ticket.numero}. Te contactaremos pronto.`);
+  // Si ya tiene un ticket abierto, el mensaje es un comentario de esa
+  // conversación en curso — no hace falta clasificarlo.
+  if (usuarioExistente) {
+    const abierto = await findOpenTicketForUsuario(usuarioExistente.id);
+    if (abierto) {
+      await agregarComentario(abierto.id, usuarioExistente.id, text);
+      return NextResponse.json({ ok: true });
+    }
+  }
+
+  // Sin conversación abierta: el número también lo usan clientes para
+  // saludos u otras consultas, así que clasificamos antes de crear un
+  // ticket nuevo (y de crear el usuario, si todavía no existía).
+  const esSoporte = await esSolicitudDeSoporte(text);
+  if (!esSoporte) {
+    await notificarCanalNoEsTicket(phone, info.PushName);
+    return NextResponse.json({ ok: true });
+  }
+
+  const usuario = usuarioExistente ?? (await findOrCreateUsuarioByWhatsapp(phone, info.PushName));
+  await createTicket({ titulo: text.slice(0, 80), descripcion: text, prioridad: 2 }, usuario.id);
 
   return NextResponse.json({ ok: true });
 }

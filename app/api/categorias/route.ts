@@ -10,12 +10,14 @@ const createCategoriaSchema = z.object({
   descripcion: z.string().optional(),
 });
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   const { error } = await requireSession();
   if (error) return error;
 
+  const incluirInactivas = request.nextUrl.searchParams.get('all') === '1';
+
   const result = await db.query.categorias.findMany({
-    where: eq(categorias.activa, true),
+    where: incluirInactivas ? undefined : eq(categorias.activa, true),
   });
   return NextResponse.json(result);
 }

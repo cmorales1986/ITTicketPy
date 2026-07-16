@@ -1,6 +1,12 @@
-import { count, eq } from 'drizzle-orm';
+import { and, count, eq, ne } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { tickets, comentarios, historial } from '@/lib/db/schema';
+import { tickets, comentarios, historial, usuarios } from '@/lib/db/schema';
+import {
+  notificarTicketCreado,
+  notificarTicketAsignado,
+  notificarCambioEstado,
+  notificarNuevoComentario,
+} from '@/lib/notifications/whatsapp';
 
 const ESTADO_LABELS: Record<number, string> = {
   1: 'Abierto',
@@ -90,6 +96,15 @@ async function generateNumero(): Promise<string> {
   return `TIC-${String(value + 1).padStart(5, '0')}`;
 }
 
+// A usuario's WhatsApp thread stays tied to their most recent ticket until
+// it's Cerrado (4) — new messages become comments instead of new tickets.
+export async function findOpenTicketForUsuario(usuarioId: string) {
+  return db.query.tickets.findFirst({
+    where: and(eq(tickets.usuarioId, usuarioId), ne(tickets.estado, 4)),
+    orderBy: (t, { desc }) => [desc(t.fechaCreacion)],
+  });
+}
+
 export async function createTicket(dto: CreateTicketInput, usuarioId: string) {
   const numero = await generateNumero();
 
@@ -99,6 +114,11 @@ export async function createTicket(dto: CreateTicketInput, usuarioId: string) {
     .returning();
 
   await registrarHistorial(ticket.id, usuarioId, 'CREACION', 'Ticket creado');
+
+  const usuario = await db.query.usuarios.findFirst({ where: eq(usuarios.id, usuarioId) });
+  if (usuario?.numeroWhatsApp) {
+    await notificarTicketCreado(usuario.numeroWhatsApp, numero, usuario.nombre);
+  }
 
   return ticket;
 }
@@ -136,7 +156,13 @@ export async function updateTicket(id: string, dto: UpdateTicketInput, usuarioId
 
   await db.update(tickets).set(updateValues).where(eq(tickets.id, id));
 
-  return findTicketById(id);
+  const actualizado = await findTicketById(id);
+
+  if (dto.estado && dto.estado !== ticket.estado && actualizado?.usuario?.numeroWhatsApp) {
+    await notificarCambioEstado(actualizado.usuario.numeroWhatsApp, actualizado.numero, ESTADO_LABELS[dto.estado]);
+  }
+
+  return actualizado;
 }
 
 export async function asignarTicket(id: string, tecnicoId: string, usuarioId: string) {
@@ -161,6 +187,14 @@ export async function asignarTicket(id: string, tecnicoId: string, usuarioId: st
     actualizado?.tecnicoAsignado?.nombre,
   );
 
+  if (actualizado?.usuario?.numeroWhatsApp && actualizado.tecnicoAsignado?.nombre) {
+    await notificarTicketAsignado(
+      actualizado.usuario.numeroWhatsApp,
+      actualizado.numero,
+      actualizado.tecnicoAsignado.nombre,
+    );
+  }
+
   return actualizado;
 }
 
@@ -174,6 +208,15 @@ export async function agregarComentario(ticketId: string, usuarioId: string, con
     .returning();
 
   await registrarHistorial(ticketId, usuarioId, 'COMENTARIO', 'Comentario agregado');
+
+  // Only notify the requester when someone else (a técnico/admin) replies —
+  // not when they're the one who just wrote the comment (e.g. via WhatsApp).
+  if (usuarioId !== ticket.usuarioId && ticket.usuario?.numeroWhatsApp) {
+    const autor = await db.query.usuarios.findFirst({ where: eq(usuarios.id, usuarioId) });
+    if (autor) {
+      await notificarNuevoComentario(ticket.usuario.numeroWhatsApp, ticket.numero, autor.nombre, contenido);
+    }
+  }
 
   return comentario;
 }

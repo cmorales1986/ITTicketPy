@@ -23,6 +23,7 @@ export interface Categoria {
   id: string;
   nombre: string;
   descripcion?: string;
+  activa: boolean;
 }
 
 export interface Ticket {

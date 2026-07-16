@@ -11,7 +11,7 @@ import { useAuthStore } from '@/store/auth.store';
 import { useRouter } from 'next/navigation';
 import {
   Plus, Loader2, Users, Shield,
-  Wrench, User, X, Eye, EyeOff
+  Wrench, User, X, Eye, EyeOff, Pencil
 } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -21,29 +21,41 @@ const ROL_LABELS: Record<number, string> = {
   0: 'Usuario',
   1: 'Técnico',
   2: 'Admin',
+  3: 'Admin y Técnico',
 };
 
 const ROL_COLORS: Record<number, string> = {
   0: 'bg-gray-500/10 text-gray-400',
   1: 'bg-blue-500/10 text-blue-400',
   2: 'bg-purple-500/10 text-purple-400',
+  3: 'bg-indigo-500/10 text-indigo-400',
 };
 
 const ROL_ICONS: Record<number, any> = {
   0: User,
   1: Wrench,
   2: Shield,
+  3: Shield,
 };
 
 const schema = z.object({
   nombre: z.string().min(3, 'Mínimo 3 caracteres'),
   email: z.string().email('Email inválido'),
   password: z.string().min(6, 'Mínimo 6 caracteres'),
-  rol: z.number().min(0).max(2),
+  rol: z.number().min(0).max(3),
   numeroWhatsApp: z.string().optional(),
 });
 
 type FormData = z.infer<typeof schema>;
+
+const editSchema = z.object({
+  nombre: z.string().min(3, 'Mínimo 3 caracteres'),
+  email: z.string().email('Email inválido'),
+  rol: z.number().min(0).max(3),
+  numeroWhatsApp: z.string().optional(),
+});
+
+type EditFormData = z.infer<typeof editSchema>;
 
 export default function UsuariosPage() {
   const router = useRouter();
@@ -53,15 +65,49 @@ export default function UsuariosPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [creando, setCreando] = useState(false);
+  const [editando, setEditando] = useState<Usuario | null>(null);
+  const [guardando, setGuardando] = useState(false);
 
   const { register, handleSubmit, reset, formState: { errors } } = useForm<FormData>({
     resolver: zodResolver(schema),
     defaultValues: { rol: 0 },
   });
 
+  const {
+    register: registerEdit,
+    handleSubmit: handleSubmitEdit,
+    reset: resetEdit,
+    formState: { errors: editErrors },
+  } = useForm<EditFormData>({ resolver: zodResolver(editSchema) });
+
+  const abrirEdicion = (u: Usuario) => {
+    setEditando(u);
+    resetEdit({
+      nombre: u.nombre,
+      email: u.email,
+      rol: u.rol,
+      numeroWhatsApp: u.numeroWhatsApp ?? '',
+    });
+  };
+
+  const onSubmitEdit = async (data: EditFormData) => {
+    if (!editando) return;
+    setGuardando(true);
+    try {
+      await api.patch(`/usuarios/${editando.id}`, data);
+      toast.success('Usuario actualizado correctamente');
+      setEditando(null);
+      fetchUsuarios();
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'Error al actualizar usuario');
+    } finally {
+      setGuardando(false);
+    }
+  };
+
   useEffect(() => {
     // Solo admins pueden ver esta página
-    if (usuario?.rol !== 2) {
+    if (usuario?.rol !== 2 && usuario?.rol !== 3) {
       router.push('/dashboard');
       return;
     }
@@ -107,8 +153,8 @@ export default function UsuariosPage() {
   // Stats
   const stats = {
     total: usuarios.length,
-    admins: usuarios.filter(u => u.rol === 2).length,
-    tecnicos: usuarios.filter(u => u.rol === 1).length,
+    admins: usuarios.filter(u => u.rol === 2 || u.rol === 3).length,
+    tecnicos: usuarios.filter(u => u.rol === 1 || u.rol === 3).length,
     usuarios: usuarios.filter(u => u.rol === 0).length,
   };
 
@@ -213,18 +259,27 @@ export default function UsuariosPage() {
                     </span>
                   </td>
                   <td className="px-5 py-4">
-                    {u.id !== usuario?.id && (
+                    <div className="flex items-center gap-2">
                       <button
-                        onClick={() => toggleActivo(u.id, u.activo)}
-                        className={`text-xs px-3 py-1.5 rounded-lg transition font-medium ${
-                          u.activo
-                            ? 'bg-red-500/10 text-red-400 hover:bg-red-500/20'
-                            : 'bg-green-500/10 text-green-400 hover:bg-green-500/20'
-                        }`}
+                        onClick={() => abrirEdicion(u)}
+                        className="text-xs px-3 py-1.5 rounded-lg transition font-medium bg-gray-800 text-gray-300 hover:bg-gray-700 flex items-center gap-1.5"
                       >
-                        {u.activo ? 'Desactivar' : 'Activar'}
+                        <Pencil className="w-3 h-3" />
+                        Editar
                       </button>
-                    )}
+                      {u.id !== usuario?.id && (
+                        <button
+                          onClick={() => toggleActivo(u.id, u.activo)}
+                          className={`text-xs px-3 py-1.5 rounded-lg transition font-medium ${
+                            u.activo
+                              ? 'bg-red-500/10 text-red-400 hover:bg-red-500/20'
+                              : 'bg-green-500/10 text-green-400 hover:bg-green-500/20'
+                          }`}
+                        >
+                          {u.activo ? 'Desactivar' : 'Activar'}
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               );
@@ -299,6 +354,7 @@ export default function UsuariosPage() {
                     <option value={0}>Usuario</option>
                     <option value={1}>Técnico</option>
                     <option value={2}>Admin</option>
+                    <option value={3}>Admin y Técnico</option>
                   </select>
                 </div>
 
@@ -327,6 +383,87 @@ export default function UsuariosPage() {
                 >
                   {creando && <Loader2 className="w-4 h-4 animate-spin" />}
                   {creando ? 'Creando...' : 'Crear usuario'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal editar usuario */}
+      {editando && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+          <div className="bg-gray-900 border border-gray-800 rounded-2xl w-full max-w-md">
+
+            <div className="flex items-center justify-between p-6 border-b border-gray-800">
+              <h2 className="text-white font-semibold text-lg">Editar usuario</h2>
+              <button onClick={() => setEditando(null)} className="text-gray-400 hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSubmitEdit(onSubmitEdit)} className="p-6 space-y-4">
+
+              <div>
+                <label className="text-sm text-gray-400 mb-1 block">Nombre completo *</label>
+                <input
+                  {...registerEdit('nombre')}
+                  placeholder="Ej: Juan Pérez"
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 text-sm"
+                />
+                {editErrors.nombre && <p className="text-red-400 text-xs mt-1">{editErrors.nombre.message}</p>}
+              </div>
+
+              <div>
+                <label className="text-sm text-gray-400 mb-1 block">Email *</label>
+                <input
+                  {...registerEdit('email')}
+                  type="email"
+                  placeholder="juan@empresa.com"
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 text-sm"
+                />
+                {editErrors.email && <p className="text-red-400 text-xs mt-1">{editErrors.email.message}</p>}
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-sm text-gray-400 mb-1 block">Rol *</label>
+                  <select
+                    {...registerEdit('rol', { valueAsNumber: true })}
+                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-blue-500 text-sm"
+                  >
+                    <option value={0}>Usuario</option>
+                    <option value={1}>Técnico</option>
+                    <option value={2}>Admin</option>
+                    <option value={3}>Admin y Técnico</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-sm text-gray-400 mb-1 block">WhatsApp</label>
+                  <input
+                    {...registerEdit('numeroWhatsApp')}
+                    placeholder="+595985123456"
+                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 text-sm"
+                  />
+                </div>
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setEditando(null)}
+                  className="flex-1 px-4 py-2.5 border border-gray-700 text-gray-400 hover:text-white rounded-lg text-sm transition"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={guardando}
+                  className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-medium py-2.5 rounded-lg transition flex items-center justify-center gap-2 text-sm"
+                >
+                  {guardando && <Loader2 className="w-4 h-4 animate-spin" />}
+                  {guardando ? 'Guardando...' : 'Guardar cambios'}
                 </button>
               </div>
             </form>

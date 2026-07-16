@@ -11,7 +11,7 @@ const registerSchema = z.object({
   email: z.string().email(),
   password: z.string().min(6),
   numeroWhatsApp: z.string().optional(),
-  rol: z.number().optional(),
+  rol: z.number().min(0).max(3).optional(),
 });
 
 export async function POST(request: NextRequest) {

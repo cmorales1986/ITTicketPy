@@ -134,6 +134,19 @@ main .font-mono {
   color: #64748b !important;
 }
 
+/* Texto blanco sobre fondos de color sólido (botones, avatares) — no debe
+   quedar pisado por el override de texto oscuro de arriba */
+main .bg-blue-600.text-white,
+main .bg-blue-600 .text-white,
+main .bg-blue-500 .text-white,
+main .bg-red-600.text-white,
+main .bg-green-600.text-white,
+.fixed.inset-0 .bg-blue-600.text-white,
+.fixed.inset-0 .bg-blue-600 .text-white,
+.fixed.inset-0 .bg-blue-500 .text-white {
+  color: #ffffff !important;
+}
+
 /* ===== MODALES ===== */
 .fixed.inset-0 .bg-gray-900 {
   background-color: #ffffff !important;

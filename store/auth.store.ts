@@ -37,7 +37,7 @@ export const useAuthStore = create<AuthState>()(
         }
       },
 
-      isAdmin: () => get().usuario?.rol === 2,
+      isAdmin: () => get().usuario?.rol === 2 || get().usuario?.rol === 3,
       isTecnico: () => (get().usuario?.rol ?? 0) >= 1,
     }),
     {
