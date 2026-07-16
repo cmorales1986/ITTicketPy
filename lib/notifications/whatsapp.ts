@@ -76,13 +76,6 @@ export async function notificarCambioEstado(numero: string, ticketNumero: string
   sendWhatsappDeferred(numero, `${saludo()}. Tu ticket ${ticketNumero} cambió de estado a ${estadoNuevo}.`);
 }
 
-export async function notificarCanalNoEsTicket(numero: string, nombre?: string) {
-  sendWhatsappDeferred(
-    numero,
-    `${saludo()}${nombre ? ` *${nombre}*` : ''}. Este es el canal de soporte técnico de ITTicketPy. Si tenés un problema o necesitás ayuda con algo, contanos brevemente qué pasó y te creamos un ticket enseguida.`,
-  );
-}
-
 export async function notificarNuevoComentario(
   numero: string,
   ticketNumero: string,

@@ -3,7 +3,6 @@ import crypto from 'crypto';
 import { createTicket, findOpenTicketForUsuario, agregarComentario } from '@/lib/tickets/service';
 import { findOrCreateUsuarioByWhatsapp, findUsuarioByWhatsapp } from '@/lib/usuarios/find-or-create';
 import { esSolicitudDeSoporte } from '@/lib/ai/clasificar-mensaje';
-import { notificarCanalNoEsTicket } from '@/lib/notifications/whatsapp';
 
 export const runtime = 'nodejs';
 
@@ -104,9 +103,10 @@ export async function POST(request: NextRequest) {
   // Sin conversación abierta: el número también lo usan clientes para
   // saludos u otras consultas, así que clasificamos antes de crear un
   // ticket nuevo (y de crear el usuario, si todavía no existía).
+  // Si no es una solicitud de soporte, no respondemos nada — solo actuamos
+  // (creando el ticket y confirmando) cuando el mensaje sí lo amerita.
   const esSoporte = await esSolicitudDeSoporte(text);
   if (!esSoporte) {
-    await notificarCanalNoEsTicket(phone, info.PushName);
     return NextResponse.json({ ok: true });
   }
 
