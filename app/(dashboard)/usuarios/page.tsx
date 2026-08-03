@@ -53,6 +53,10 @@ const editSchema = z.object({
   email: z.string().email('Email inválido'),
   rol: z.number().min(0).max(3),
   numeroWhatsApp: z.string().optional(),
+  password: z
+    .string()
+    .optional()
+    .refine((v) => !v || v.length >= 6, 'Mínimo 6 caracteres'),
 });
 
 type EditFormData = z.infer<typeof editSchema>;
@@ -64,6 +68,7 @@ export default function UsuariosPage() {
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [showEditPassword, setShowEditPassword] = useState(false);
   const [creando, setCreando] = useState(false);
   const [editando, setEditando] = useState<Usuario | null>(null);
   const [guardando, setGuardando] = useState(false);
@@ -94,7 +99,9 @@ export default function UsuariosPage() {
     if (!editando) return;
     setGuardando(true);
     try {
-      await api.patch(`/usuarios/${editando.id}`, data);
+      const payload = { ...data };
+      if (!payload.password) delete payload.password;
+      await api.patch(`/usuarios/${editando.id}`, payload);
       toast.success('Usuario actualizado correctamente');
       setEditando(null);
       fetchUsuarios();
@@ -423,6 +430,26 @@ export default function UsuariosPage() {
                   className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 text-sm"
                 />
                 {editErrors.email && <p className="text-red-400 text-xs mt-1">{editErrors.email.message}</p>}
+              </div>
+
+              <div>
+                <label className="text-sm text-gray-400 mb-1 block">Nueva contraseña</label>
+                <div className="relative">
+                  <input
+                    {...registerEdit('password')}
+                    type={showEditPassword ? 'text' : 'password'}
+                    placeholder="Dejar en blanco para no cambiar"
+                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 text-sm pr-10"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowEditPassword(!showEditPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300"
+                  >
+                    {showEditPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+                {editErrors.password && <p className="text-red-400 text-xs mt-1">{editErrors.password.message}</p>}
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

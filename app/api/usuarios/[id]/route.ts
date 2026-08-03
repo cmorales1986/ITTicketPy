@@ -4,6 +4,7 @@ import { and, eq, ne } from 'drizzle-orm';
 import { requireSession } from '@/lib/auth/guard';
 import { db } from '@/lib/db';
 import { usuarios } from '@/lib/db/schema';
+import { hashPassword } from '@/lib/auth/password';
 
 const updateUsuarioSchema = z.object({
   activo: z.boolean().optional(),
@@ -11,6 +12,7 @@ const updateUsuarioSchema = z.object({
   email: z.string().email().optional(),
   rol: z.number().min(0).max(3).optional(),
   numeroWhatsApp: z.string().optional(),
+  password: z.string().min(6).optional(),
 });
 
 export async function PATCH(
@@ -35,7 +37,13 @@ export async function PATCH(
     }
   }
 
-  await db.update(usuarios).set(parsed.data).where(eq(usuarios.id, id));
+  const { password, ...resto } = parsed.data;
+  const updateValues: Partial<typeof usuarios.$inferInsert> = { ...resto };
+  if (password) {
+    updateValues.passwordHash = await hashPassword(password);
+  }
+
+  await db.update(usuarios).set(updateValues).where(eq(usuarios.id, id));
 
   const usuario = await db.query.usuarios.findFirst({
     where: eq(usuarios.id, id),
