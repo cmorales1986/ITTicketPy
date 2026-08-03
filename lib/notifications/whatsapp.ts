@@ -51,6 +51,13 @@ function saludo(): string {
   return 'Buenas noches';
 }
 
+export async function notificarBienvenida(numero: string, nombre?: string) {
+  sendWhatsappDeferred(
+    numero,
+    `${saludo()}${nombre ? ` *${nombre}*` : ''}. Bienvenido/a al sistema de soporte técnico. Contanos brevemente cuál es el problema o qué necesitás, y te creamos un ticket enseguida.`,
+  );
+}
+
 export async function notificarTicketCreado(numero: string, ticketNumero: string, nombre: string) {
   sendWhatsappDeferred(
     numero,

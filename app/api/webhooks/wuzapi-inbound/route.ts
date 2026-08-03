@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import { createTicket, findOpenTicketForUsuario, agregarComentario } from '@/lib/tickets/service';
 import { findOrCreateUsuarioByWhatsapp, findUsuarioByWhatsapp } from '@/lib/usuarios/find-or-create';
 import { esSolicitudDeSoporte } from '@/lib/ai/clasificar-mensaje';
+import { notificarBienvenida } from '@/lib/notifications/whatsapp';
 
 export const runtime = 'nodejs';
 
@@ -90,28 +91,32 @@ export async function POST(request: NextRequest) {
   const phone = extractPhone(info);
   const usuarioExistente = await findUsuarioByWhatsapp(phone);
 
-  // Si ya tiene un ticket abierto, el mensaje es un comentario de esa
-  // conversación en curso — no hace falta clasificarlo.
-  if (usuarioExistente) {
-    const abierto = await findOpenTicketForUsuario(usuarioExistente.id);
-    if (abierto) {
-      await agregarComentario(abierto.id, usuarioExistente.id, text);
-      return NextResponse.json({ ok: true });
-    }
+  // Primer contacto de este número: lo registramos y respondemos con la
+  // bienvenida, sin crear ticket todavía — recién su próximo mensaje se
+  // clasifica y (si corresponde) genera el ticket.
+  if (!usuarioExistente) {
+    await findOrCreateUsuarioByWhatsapp(phone, info.PushName);
+    await notificarBienvenida(phone, info.PushName);
+    return NextResponse.json({ ok: true });
   }
 
-  // Sin conversación abierta: el número también lo usan clientes para
-  // saludos u otras consultas, así que clasificamos antes de crear un
-  // ticket nuevo (y de crear el usuario, si todavía no existía).
-  // Si no es una solicitud de soporte, no respondemos nada — solo actuamos
-  // (creando el ticket y confirmando) cuando el mensaje sí lo amerita.
+  // Si ya tiene un ticket abierto, el mensaje es un comentario de esa
+  // conversación en curso — no hace falta clasificarlo.
+  const abierto = await findOpenTicketForUsuario(usuarioExistente.id);
+  if (abierto) {
+    await agregarComentario(abierto.id, usuarioExistente.id, text);
+    return NextResponse.json({ ok: true });
+  }
+
+  // Ya nos conoce (escribió antes): clasificamos antes de crear un ticket
+  // nuevo, porque también puede estar saludando u otra consulta. Si no es
+  // una solicitud de soporte, no respondemos nada.
   const esSoporte = await esSolicitudDeSoporte(text);
   if (!esSoporte) {
     return NextResponse.json({ ok: true });
   }
 
-  const usuario = usuarioExistente ?? (await findOrCreateUsuarioByWhatsapp(phone, info.PushName));
-  await createTicket({ titulo: text.slice(0, 80), descripcion: text, prioridad: 2 }, usuario.id);
+  await createTicket({ titulo: text.slice(0, 80), descripcion: text, prioridad: 2 }, usuarioExistente.id);
 
   return NextResponse.json({ ok: true });
 }
