@@ -80,3 +80,32 @@ export async function limpiarBorrador(usuarioId: string) {
     .set({ borradorTicket: null, borradorFecha: null })
     .where(eq(usuarios.id, usuarioId));
 }
+
+// Cuánto esperamos la respuesta a "¿esto es parte de tu ticket o es algo
+// nuevo?" antes de dar el tema por perdido y volver a preguntar si vuelve
+// a surgir la duda.
+const CONFIRMACION_TTL_MS = 20 * 60 * 1000;
+
+export function obtenerConfirmacionVigente(usuario: {
+  confirmacionTicketId: string | null;
+  confirmacionTexto: string | null;
+  confirmacionFecha: Date | null;
+}): { ticketId: string; texto: string } | null {
+  if (!usuario.confirmacionTicketId || !usuario.confirmacionTexto || !usuario.confirmacionFecha) return null;
+  if (Date.now() - new Date(usuario.confirmacionFecha).getTime() > CONFIRMACION_TTL_MS) return null;
+  return { ticketId: usuario.confirmacionTicketId, texto: usuario.confirmacionTexto };
+}
+
+export async function guardarConfirmacionPendiente(usuarioId: string, ticketId: string, texto: string) {
+  await db
+    .update(usuarios)
+    .set({ confirmacionTicketId: ticketId, confirmacionTexto: texto.slice(0, 4000), confirmacionFecha: new Date() })
+    .where(eq(usuarios.id, usuarioId));
+}
+
+export async function limpiarConfirmacionPendiente(usuarioId: string) {
+  await db
+    .update(usuarios)
+    .set({ confirmacionTicketId: null, confirmacionTexto: null, confirmacionFecha: null })
+    .where(eq(usuarios.id, usuarioId));
+}

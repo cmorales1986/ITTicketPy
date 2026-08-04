@@ -31,6 +31,12 @@ export const usuarios = pgTable('usuarios', {
   // Se descarta solo si pasó demasiado tiempo — ver BORRADOR_TTL_MS.
   borradorTicket: text('borradorTicket'),
   borradorFecha: timestamp('borradorFecha'),
+  // Le preguntamos si un mensaje era parte de su ticket abierto o un
+  // problema nuevo, y estamos esperando que responda 1 o 2. Sin FK a
+  // tickets a propósito — es estado efímero, se limpia apenas contesta.
+  confirmacionTicketId: uuid('confirmacionTicketId'),
+  confirmacionTexto: text('confirmacionTexto'),
+  confirmacionFecha: timestamp('confirmacionFecha'),
 });
 
 export const categorias = pgTable('categorias', {

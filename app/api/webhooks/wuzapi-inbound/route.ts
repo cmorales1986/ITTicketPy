@@ -5,6 +5,7 @@ import {
   createTicket,
   findOpenTicketForUsuario,
   findTicketPendienteEncuesta,
+  findTicketById,
   guardarEncuesta,
   agregarMensajeChat,
   agregarAdjunto,
@@ -15,11 +16,20 @@ import {
   obtenerBorradorVigente,
   guardarBorrador,
   limpiarBorrador,
+  obtenerConfirmacionVigente,
+  guardarConfirmacionPendiente,
+  limpiarConfirmacionPendiente,
 } from '@/lib/usuarios/find-or-create';
 import { esSolicitudDeSoporte } from '@/lib/ai/clasificar-mensaje';
 import { generarSugerencia } from '@/lib/ai/sugerir-solucion';
 import { analizarTicket } from '@/lib/ai/analizar-ticket';
-import { notificarBienvenida, notificarEncuestaRecibida, notificarPreguntaAdicional } from '@/lib/notifications/whatsapp';
+import { esMismoProblema } from '@/lib/ai/es-mismo-problema';
+import {
+  notificarBienvenida,
+  notificarEncuestaRecibida,
+  notificarPreguntaAdicional,
+  notificarConfirmarContexto,
+} from '@/lib/notifications/whatsapp';
 
 export const runtime = 'nodejs';
 
@@ -90,6 +100,16 @@ function parseCalificacion(texto: string): number | null {
   if (texto.length > 40) return null;
   const match = texto.match(/^([1-5])\b/);
   return match ? Number(match[1]) : null;
+}
+
+// Interpreta la respuesta a "¿es lo mismo o es un problema nuevo?" — acepta
+// el número (1/2) o algunas palabras clave típicas, para no obligar al
+// cliente a responder con el formato exacto.
+function interpretarConfirmacion(texto: string): 'mismo' | 'nuevo' | null {
+  const t = texto.trim().toLowerCase();
+  if (/^1\b/.test(t) || /\b(mismo|misma|sigue|contin[uú]a)\b/.test(t)) return 'mismo';
+  if (/^2\b/.test(t) || /\b(nuevo|nueva|otro|otra|distinto|diferente)\b/.test(t)) return 'nuevo';
+  return null;
 }
 
 // Le pide a wuzapi que descargue (y decodifique) la imagen/documento de un
@@ -216,12 +236,68 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true });
   }
 
-  // Si ya tiene un ticket abierto, el mensaje es parte del chat de esa
-  // conversación en curso — no hace falta clasificarlo. Los adjuntos van
-  // directo al ticket.
+  // Le habíamos preguntado si un mensaje anterior era parte de su ticket
+  // abierto o un problema nuevo — este mensaje es la respuesta a esa
+  // pregunta, la interpretamos antes que cualquier otra cosa.
+  const confirmacionPendiente = obtenerConfirmacionVigente(usuarioExistente);
+  if (confirmacionPendiente && textoEfectivo) {
+    const decision = interpretarConfirmacion(textoEfectivo);
+
+    if (decision === 'mismo') {
+      await limpiarConfirmacionPendiente(usuarioExistente.id);
+      await agregarMensajeChat(confirmacionPendiente.ticketId, usuarioExistente.id, confirmacionPendiente.texto);
+      if (mediaMessage && message) {
+        await adjuntarMediaWuzapi(confirmacionPendiente.ticketId, usuarioExistente.id, message);
+      }
+      return NextResponse.json({ ok: true });
+    }
+
+    if (decision === 'nuevo') {
+      await limpiarConfirmacionPendiente(usuarioExistente.id);
+      const analisis = await analizarTicket(confirmacionPendiente.texto);
+
+      if (!analisis.completo) {
+        await guardarBorrador(usuarioExistente.id, confirmacionPendiente.texto);
+        await notificarPreguntaAdicional(phone, analisis.pregunta!);
+        return NextResponse.json({ ok: true });
+      }
+
+      const sugerencia = await generarSugerencia(confirmacionPendiente.texto);
+      const nuevoTicket = await createTicket(
+        { titulo: analisis.titulo!, descripcion: analisis.descripcion!, prioridad: 2 },
+        usuarioExistente.id,
+        sugerencia,
+      );
+      if (mediaMessage && message) {
+        await adjuntarMediaWuzapi(nuevoTicket.id, usuarioExistente.id, message);
+      }
+      return NextResponse.json({ ok: true });
+    }
+
+    // No reconocimos 1/2 ni una palabra clave clara: repetimos la pregunta
+    // en vez de adivinar (mejor una repregunta que mezclar temas por error).
+    const ticketPendiente = await findTicketById(confirmacionPendiente.ticketId);
+    if (ticketPendiente) {
+      await notificarConfirmarContexto(phone, ticketPendiente.numero, ticketPendiente.titulo);
+    }
+    return NextResponse.json({ ok: true });
+  }
+
+  // Si ya tiene un ticket abierto, chequeamos que el mensaje siga siendo
+  // sobre ese problema antes de sumarlo al chat — un cliente con "mil
+  // problemas" el mismo día puede mandar algo totalmente distinto sin
+  // avisar, y eso merece su propio ticket en vez de mezclarse con el otro.
   const abierto = await findOpenTicketForUsuario(usuarioExistente.id);
   if (abierto) {
     if (textoEfectivo) {
+      const relacionado = await esMismoProblema(abierto.titulo, abierto.descripcion, textoEfectivo);
+      if (!relacionado) {
+        await guardarConfirmacionPendiente(usuarioExistente.id, abierto.id, textoEfectivo);
+        await notificarConfirmarContexto(phone, abierto.numero, abierto.titulo);
+        // La foto/documento de este mensaje (si la hay) queda sin adjuntar
+        // hasta que se confirme a qué ticket termina perteneciendo.
+        return NextResponse.json({ ok: true });
+      }
       await agregarMensajeChat(abierto.id, usuarioExistente.id, textoEfectivo);
     }
     if (mediaMessage && message) {

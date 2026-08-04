@@ -100,6 +100,16 @@ export async function notificarPreguntaAdicional(numero: string, pregunta: strin
   sendWhatsappDeferred(numero, `${saludo()}. ${pregunta}`);
 }
 
+// El cliente ya tiene un ticket abierto y este mensaje no suena a que sea
+// sobre lo mismo — le preguntamos si seguir sumándolo a ese ticket o si es
+// un problema nuevo, antes de decidir por nuestra cuenta.
+export async function notificarConfirmarContexto(numero: string, ticketNumero: string, ticketTitulo: string) {
+  sendWhatsappDeferred(
+    numero,
+    `${saludo()}. Todavía tenés abierto el ticket ${ticketNumero} (${ticketTitulo}). ¿Este mensaje es parte de ese mismo problema o es algo nuevo?\n\n1️⃣ Es lo mismo\n2️⃣ Es un problema nuevo`,
+  );
+}
+
 export async function notificarNuevoMensajeChat(
   numero: string,
   ticketNumero: string,
