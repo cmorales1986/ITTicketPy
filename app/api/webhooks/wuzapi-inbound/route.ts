@@ -194,8 +194,9 @@ async function intentarCrearTicket(
   texto: string,
   mediaMessage: WuzapiMediaMessage | undefined,
   message: WuzapiMessageContent | undefined,
+  forzarCompleto = false,
 ): Promise<void> {
-  const analisis = await analizarTicket(texto);
+  const analisis = await analizarTicket(texto, forzarCompleto);
 
   if (!analisis.completo) {
     await guardarBorrador(usuarioId, texto);
@@ -307,7 +308,9 @@ export async function POST(request: NextRequest) {
   // nunca el ticket nuevo.
   const borradorPrevio = obtenerBorradorVigente(usuarioExistente);
   if (borradorPrevio && textoEfectivo) {
-    await intentarCrearTicket(usuarioExistente.id, phone, `${borradorPrevio}\n${textoEfectivo}`, mediaMessage, message);
+    // forzarCompleto=true: ya le preguntamos una vez, no lo hacemos dar más
+    // vueltas — el ticket se arma sí o sí con lo que haya en esta segunda vuelta.
+    await intentarCrearTicket(usuarioExistente.id, phone, `${borradorPrevio}\n${textoEfectivo}`, mediaMessage, message, true);
     return NextResponse.json({ ok: true });
   }
 
