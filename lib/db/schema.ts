@@ -43,6 +43,9 @@ export const tickets = pgTable('tickets', {
   tiempoResponseMinutos: integer('tiempoResponseMinutos').notNull().default(480),
   fechaCreacion: timestamp('fechaCreacion').notNull().defaultNow(),
   fechaResolucion: timestamp('fechaResolucion'),
+  // Encuesta de satisfacción (se pide por WhatsApp al cerrar el ticket)
+  calificacion: integer('calificacion'), // 1-5
+  comentarioEncuesta: text('comentarioEncuesta'),
 });
 
 export const comentarios = pgTable('comentarios', {

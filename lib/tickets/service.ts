@@ -1,10 +1,10 @@
-import { and, count, eq, ne } from 'drizzle-orm';
+import { and, count, eq, isNull, ne } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { tickets, comentarios, historial, usuarios } from '@/lib/db/schema';
 import {
   notificarTicketCreado,
   notificarTicketAsignado,
-  notificarCambioEstado,
+  notificarTicketCerrado,
   notificarNuevoComentario,
 } from '@/lib/notifications/whatsapp';
 
@@ -105,7 +105,31 @@ export async function findOpenTicketForUsuario(usuarioId: string) {
   });
 }
 
-export async function createTicket(dto: CreateTicketInput, usuarioId: string) {
+// El ticket cerrado más reciente de un usuario que todavía no respondió la
+// encuesta de satisfacción — su próximo mensaje por WhatsApp se interpreta
+// como la respuesta en vez de clasificarse como un contacto nuevo.
+export async function findTicketPendienteEncuesta(usuarioId: string) {
+  return db.query.tickets.findFirst({
+    where: and(eq(tickets.usuarioId, usuarioId), eq(tickets.estado, 4), isNull(tickets.calificacion)),
+    orderBy: (t, { desc }) => [desc(t.fechaCreacion)],
+  });
+}
+
+export async function guardarEncuesta(ticketId: string, calificacion: number, comentario: string) {
+  await db
+    .update(tickets)
+    .set({ calificacion, comentarioEncuesta: comentario })
+    .where(eq(tickets.id, ticketId));
+}
+
+// sugerenciaIA solo se usa para tickets originados por WhatsApp (ver
+// app/api/webhooks/wuzapi-inbound) — un ticket creado desde el panel no
+// pasa por el clasificador ni genera sugerencia.
+export async function createTicket(
+  dto: CreateTicketInput,
+  usuarioId: string,
+  sugerenciaIA?: string | null,
+) {
   const numero = await generateNumero();
 
   const [ticket] = await db
@@ -117,7 +141,7 @@ export async function createTicket(dto: CreateTicketInput, usuarioId: string) {
 
   const usuario = await db.query.usuarios.findFirst({ where: eq(usuarios.id, usuarioId) });
   if (usuario?.numeroWhatsApp) {
-    await notificarTicketCreado(usuario.numeroWhatsApp, numero, usuario.nombre);
+    await notificarTicketCreado(usuario.numeroWhatsApp, numero, usuario.nombre, sugerenciaIA);
   }
 
   return ticket;
@@ -158,8 +182,10 @@ export async function updateTicket(id: string, dto: UpdateTicketInput, usuarioId
 
   const actualizado = await findTicketById(id);
 
-  if (dto.estado && dto.estado !== ticket.estado && actualizado?.usuario?.numeroWhatsApp) {
-    await notificarCambioEstado(actualizado.usuario.numeroWhatsApp, actualizado.numero, ESTADO_LABELS[dto.estado]);
+  // Por WhatsApp solo avisamos crear / asignar / cerrar — "En Progreso" y
+  // "Resuelto" en el medio no notifican, para no saturar al cliente.
+  if (dto.estado === 4 && dto.estado !== ticket.estado && actualizado?.usuario?.numeroWhatsApp) {
+    await notificarTicketCerrado(actualizado.usuario.numeroWhatsApp, actualizado.numero);
   }
 
   return actualizado;

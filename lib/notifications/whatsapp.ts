@@ -58,11 +58,17 @@ export async function notificarBienvenida(numero: string, nombre?: string) {
   );
 }
 
-export async function notificarTicketCreado(numero: string, ticketNumero: string, nombre: string) {
-  sendWhatsappDeferred(
-    numero,
-    `${saludo()}. Gracias por contactarnos *${nombre}*. Creamos tu ticket ${ticketNumero}. Te contactaremos pronto.`,
-  );
+export async function notificarTicketCreado(
+  numero: string,
+  ticketNumero: string,
+  nombre: string,
+  sugerencia?: string | null,
+) {
+  let body = `${saludo()}. Gracias por contactarnos *${nombre}*. Creamos tu ticket ${ticketNumero}. Te contactaremos pronto.`;
+  if (sugerencia) {
+    body += `\n\nMientras tanto, esto te puede ayudar: ${sugerencia}\n\n(De todas formas, un técnico va a revisar tu caso)`;
+  }
+  sendWhatsappDeferred(numero, body);
 }
 
 export async function notificarTicketAsignado(numero: string, ticketNumero: string, tecnicoNombre: string) {
@@ -72,15 +78,18 @@ export async function notificarTicketAsignado(numero: string, ticketNumero: stri
   );
 }
 
-export async function notificarCambioEstado(numero: string, ticketNumero: string, estadoNuevo: string) {
-  if (estadoNuevo === 'Cerrado') {
-    sendWhatsappDeferred(
-      numero,
-      `Tu ticket ${ticketNumero} ya fue solucionado y cambió el estado a Cerrado. Muchas gracias por contactarnos, estamos aquí para lo que necesites.`,
-    );
-    return;
-  }
-  sendWhatsappDeferred(numero, `${saludo()}. Tu ticket ${ticketNumero} cambió de estado a ${estadoNuevo}.`);
+// Único aviso de cambio de estado que mandamos por WhatsApp — "En Progreso" /
+// "Resuelto" ya no notifican, para no saturar al cliente. Incluye la
+// pregunta de la encuesta en el mismo mensaje (evita mandar dos seguidos).
+export async function notificarTicketCerrado(numero: string, ticketNumero: string) {
+  sendWhatsappDeferred(
+    numero,
+    `Tu ticket ${ticketNumero} ya fue solucionado y cambió el estado a Cerrado. Muchas gracias por contactarnos, estamos aquí para lo que necesites.\n\n¿Cómo calificarías la atención que recibiste? Respondé con un número del 1 (mala) al 5 (excelente) — nos ayuda mucho a mejorar.`,
+  );
+}
+
+export async function notificarEncuestaRecibida(numero: string) {
+  sendWhatsappDeferred(numero, '¡Gracias por tu respuesta! La tenemos en cuenta para seguir mejorando. 🙌');
 }
 
 export async function notificarNuevoComentario(

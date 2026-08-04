@@ -1,9 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
-import { createTicket, findOpenTicketForUsuario, agregarComentario } from '@/lib/tickets/service';
+import {
+  createTicket,
+  findOpenTicketForUsuario,
+  findTicketPendienteEncuesta,
+  guardarEncuesta,
+  agregarComentario,
+} from '@/lib/tickets/service';
 import { findOrCreateUsuarioByWhatsapp, findUsuarioByWhatsapp } from '@/lib/usuarios/find-or-create';
 import { esSolicitudDeSoporte } from '@/lib/ai/clasificar-mensaje';
-import { notificarBienvenida } from '@/lib/notifications/whatsapp';
+import { generarSugerencia } from '@/lib/ai/sugerir-solucion';
+import { notificarBienvenida, notificarEncuestaRecibida } from '@/lib/notifications/whatsapp';
 
 export const runtime = 'nodejs';
 
@@ -50,6 +57,15 @@ function extractPhone(info: WuzapiMessageInfo): string {
     return phoneFromJid(info.SenderAlt);
   }
   return phoneFromJid(primary);
+}
+
+// Interpreta una respuesta corta de la encuesta de satisfacción ("5",
+// "4 muy bien", "3, tardaron bastante"). Si el mensaje es largo o no
+// arranca con un número del 1 al 5, no lo tomamos como respuesta.
+function parseCalificacion(texto: string): number | null {
+  if (texto.length > 40) return null;
+  const match = texto.match(/^([1-5])\b/);
+  return match ? Number(match[1]) : null;
 }
 
 export async function POST(request: NextRequest) {
@@ -108,6 +124,19 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true });
   }
 
+  // Sin ticket abierto: si su último ticket se cerró y todavía no respondió
+  // la encuesta, y este mensaje parece esa respuesta (corto, arranca con
+  // 1-5), la guardamos en vez de clasificar el mensaje como algo nuevo.
+  const pendienteEncuesta = await findTicketPendienteEncuesta(usuarioExistente.id);
+  if (pendienteEncuesta) {
+    const calificacion = parseCalificacion(text);
+    if (calificacion !== null) {
+      await guardarEncuesta(pendienteEncuesta.id, calificacion, text);
+      await notificarEncuestaRecibida(phone);
+      return NextResponse.json({ ok: true });
+    }
+  }
+
   // Ya nos conoce (escribió antes): clasificamos antes de crear un ticket
   // nuevo, porque también puede estar saludando u otra consulta. Si no es
   // una solicitud de soporte, no respondemos nada.
@@ -116,7 +145,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true });
   }
 
-  await createTicket({ titulo: text.slice(0, 80), descripcion: text, prioridad: 2 }, usuarioExistente.id);
+  const sugerencia = await generarSugerencia(text);
+  await createTicket(
+    { titulo: text.slice(0, 80), descripcion: text, prioridad: 2 },
+    usuarioExistente.id,
+    sugerencia,
+  );
 
   return NextResponse.json({ ok: true });
 }
