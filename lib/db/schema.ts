@@ -26,6 +26,11 @@ export const usuarios = pgTable('usuarios', {
   empresaId: uuid('empresaId').references(() => empresas.id),
   activo: boolean('activo').notNull().default(true),
   fechaCreacion: timestamp('fechaCreacion').notNull().defaultNow(),
+  // Borrador de un ticket por WhatsApp esperando más detalle del cliente
+  // (le preguntamos algo como "¿qué mensaje te da?" y todavía no respondió).
+  // Se descarta solo si pasó demasiado tiempo — ver BORRADOR_TTL_MS.
+  borradorTicket: text('borradorTicket'),
+  borradorFecha: timestamp('borradorFecha'),
 });
 
 export const categorias = pgTable('categorias', {

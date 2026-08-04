@@ -49,3 +49,34 @@ export async function findOrCreateUsuarioByWhatsapp(numero: string, nombre?: str
     .returning();
   return usuario;
 }
+
+// Cuánto tiempo dejamos un borrador de ticket "abierto" esperando la
+// respuesta del cliente a nuestra pregunta de más detalle. Pasado esto, el
+// próximo mensaje se trata como un pedido nuevo en vez de sumarse al viejo.
+const BORRADOR_TTL_MS = 30 * 60 * 1000;
+
+// Si le preguntamos al cliente por más detalle y todavía está dentro de la
+// ventana de espera, devuelve el texto acumulado hasta ahora; si no, null
+// (borrador vencido o inexistente).
+export function obtenerBorradorVigente(usuario: {
+  borradorTicket: string | null;
+  borradorFecha: Date | null;
+}): string | null {
+  if (!usuario.borradorTicket || !usuario.borradorFecha) return null;
+  if (Date.now() - new Date(usuario.borradorFecha).getTime() > BORRADOR_TTL_MS) return null;
+  return usuario.borradorTicket;
+}
+
+export async function guardarBorrador(usuarioId: string, texto: string) {
+  await db
+    .update(usuarios)
+    .set({ borradorTicket: texto.slice(0, 4000), borradorFecha: new Date() })
+    .where(eq(usuarios.id, usuarioId));
+}
+
+export async function limpiarBorrador(usuarioId: string) {
+  await db
+    .update(usuarios)
+    .set({ borradorTicket: null, borradorFecha: null })
+    .where(eq(usuarios.id, usuarioId));
+}

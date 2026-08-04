@@ -94,6 +94,12 @@ export async function notificarEncuestaRecibida(numero: string) {
   sendWhatsappDeferred(numero, '¡Gracias por tu respuesta! La tenemos en cuenta para seguir mejorando. 🙌');
 }
 
+// El problema reportado no traía suficiente detalle para armar un ticket
+// útil — le repreguntamos al cliente antes de crearlo.
+export async function notificarPreguntaAdicional(numero: string, pregunta: string) {
+  sendWhatsappDeferred(numero, `${saludo()}. ${pregunta}`);
+}
+
 export async function notificarNuevoMensajeChat(
   numero: string,
   ticketNumero: string,

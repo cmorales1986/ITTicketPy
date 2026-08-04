@@ -9,10 +9,17 @@ import {
   agregarMensajeChat,
   agregarAdjunto,
 } from '@/lib/tickets/service';
-import { findOrCreateUsuarioByWhatsapp, findUsuarioByWhatsapp } from '@/lib/usuarios/find-or-create';
+import {
+  findOrCreateUsuarioByWhatsapp,
+  findUsuarioByWhatsapp,
+  obtenerBorradorVigente,
+  guardarBorrador,
+  limpiarBorrador,
+} from '@/lib/usuarios/find-or-create';
 import { esSolicitudDeSoporte } from '@/lib/ai/clasificar-mensaje';
 import { generarSugerencia } from '@/lib/ai/sugerir-solucion';
-import { notificarBienvenida, notificarEncuestaRecibida } from '@/lib/notifications/whatsapp';
+import { analizarTicket } from '@/lib/ai/analizar-ticket';
+import { notificarBienvenida, notificarEncuestaRecibida, notificarPreguntaAdicional } from '@/lib/notifications/whatsapp';
 
 export const runtime = 'nodejs';
 
@@ -242,17 +249,37 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true });
   }
 
-  // Ya nos conoce (escribió antes): clasificamos antes de crear un ticket
-  // nuevo, porque también puede estar saludando u otra consulta. Si no es
-  // una solicitud de soporte, no respondemos nada.
-  const esSoporte = await esSolicitudDeSoporte(textoEfectivo);
-  if (!esSoporte) {
+  // Si le habíamos pedido más detalle sobre un problema, este mensaje es
+  // la respuesta a esa pregunta — lo sumamos al borrador en vez de
+  // clasificarlo de nuevo (clasificar de nuevo podría descartarlo si la
+  // respuesta, sola, no suena a pedido de soporte, ej: "sí" o "error 500").
+  const borradorPrevio = obtenerBorradorVigente(usuarioExistente);
+  const textoAcumulado = borradorPrevio ? `${borradorPrevio}\n${textoEfectivo}` : textoEfectivo;
+
+  if (!borradorPrevio) {
+    // Mensaje nuevo: clasificamos antes de avanzar, porque también puede
+    // estar saludando u otra consulta ajena a soporte.
+    const esSoporte = await esSolicitudDeSoporte(textoEfectivo);
+    if (!esSoporte) {
+      return NextResponse.json({ ok: true });
+    }
+  }
+
+  // Con el pedido ya confirmado como soporte, vemos si hay detalle
+  // suficiente para armar un ticket útil o si conviene repreguntar.
+  const analisis = await analizarTicket(textoAcumulado);
+
+  if (!analisis.completo) {
+    await guardarBorrador(usuarioExistente.id, textoAcumulado);
+    await notificarPreguntaAdicional(phone, analisis.pregunta!);
     return NextResponse.json({ ok: true });
   }
 
-  const sugerencia = await generarSugerencia(textoEfectivo);
+  await limpiarBorrador(usuarioExistente.id);
+
+  const sugerencia = await generarSugerencia(textoAcumulado);
   const nuevoTicket = await createTicket(
-    { titulo: textoEfectivo.slice(0, 80), descripcion: textoEfectivo, prioridad: 2 },
+    { titulo: analisis.titulo!, descripcion: analisis.descripcion!, prioridad: 2 },
     usuarioExistente.id,
     sugerencia,
   );
