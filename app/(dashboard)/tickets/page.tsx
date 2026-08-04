@@ -12,6 +12,7 @@ import { es } from 'date-fns/locale';
 import { toast } from 'sonner';
 import { useAuthStore } from '@/store/auth.store';
 import NuevoTicketModal from '@/components/tickets/NuevoTicketModal';
+import Estrellas from '@/components/tickets/Estrellas';
 
 export default function TicketsPage() {
   const router = useRouter();
@@ -151,6 +152,7 @@ export default function TicketsPage() {
                 <th className="text-left text-gray-500 text-xs font-medium px-4 py-3 uppercase tracking-wider">Prioridad</th>
                 <th className="text-left text-gray-500 text-xs font-medium px-4 py-3 uppercase tracking-wider">Estado</th>
                 <th className="text-left text-gray-500 text-xs font-medium px-4 py-3 uppercase tracking-wider">Asignado</th>
+                <th className="text-left text-gray-500 text-xs font-medium px-4 py-3 uppercase tracking-wider">Calificación</th>
                 <th className="text-left text-gray-500 text-xs font-medium px-4 py-3 uppercase tracking-wider">Creado</th>
               </tr>
             </thead>
@@ -193,6 +195,9 @@ export default function TicketsPage() {
                     ) : (
                       <span className="text-gray-600 text-sm">Sin asignar</span>
                     )}
+                  </td>
+                  <td className="px-4 py-3">
+                    <Estrellas calificacion={ticket.calificacion} />
                   </td>
                   <td className="px-4 py-3">
                     <span className="text-gray-500 text-sm">

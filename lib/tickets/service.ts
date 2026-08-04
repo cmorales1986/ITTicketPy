@@ -1,4 +1,4 @@
-import { and, count, eq, isNull, ne } from 'drizzle-orm';
+import { and, count, eq, gte, isNull, lte, ne } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { tickets, comentarios, historial, usuarios, adjuntos, mensajesChat } from '@/lib/db/schema';
 import {
@@ -95,6 +95,37 @@ export async function findTicketById(id: string) {
         orderBy: (m, { asc }) => [asc(m.fechaCreacion)],
       },
     },
+  });
+}
+
+export interface FiltrosReporte {
+  desde?: Date;
+  hasta?: Date;
+  empresaId?: string;
+  estado?: number;
+  categoriaId?: string;
+}
+
+// Reporte simple para auditoría: todos los tickets abiertos en un rango de
+// fechas, con los datos que suelen pedir para revisar actividad (quién lo
+// reportó, quién lo atendió, cuánto tardó, cómo lo calificó el cliente).
+export async function findTicketsParaReporte(filtros: FiltrosReporte) {
+  return db.query.tickets.findMany({
+    where: (t, { and: andOp }) =>
+      andOp(
+        filtros.desde ? gte(t.fechaCreacion, filtros.desde) : undefined,
+        filtros.hasta ? lte(t.fechaCreacion, filtros.hasta) : undefined,
+        filtros.empresaId ? eq(t.empresaId, filtros.empresaId) : undefined,
+        filtros.estado ? eq(t.estado, filtros.estado) : undefined,
+        filtros.categoriaId ? eq(t.categoriaId, filtros.categoriaId) : undefined,
+      ),
+    with: {
+      usuario: true,
+      tecnicoAsignado: true,
+      categoria: true,
+      empresa: true,
+    },
+    orderBy: (t, { asc }) => [asc(t.fechaCreacion)],
   });
 }
 

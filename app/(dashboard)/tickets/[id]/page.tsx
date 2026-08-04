@@ -18,6 +18,7 @@ import {
   PRIORIDAD_COLORS,
 } from "@/types";
 import Timeline from "@/components/tickets/Timeline";
+import Estrellas from "@/components/tickets/Estrellas";
 import { useAuthStore } from "@/store/auth.store";
 import { toast } from "sonner";
 import { formatDistanceToNow, format } from "date-fns";
@@ -248,6 +249,7 @@ export default function TicketDetallePage() {
             >
               {ESTADO_LABELS[ticket.estado]}
             </span>
+            <Estrellas calificacion={ticket.calificacion} size="md" />
           </div>
           <h1 className="text-xl font-bold text-white mt-1">{ticket.titulo}</h1>
         </div>
@@ -558,6 +560,20 @@ export default function TicketDetallePage() {
                     )}
                   </span>
                 </div>
+              )}
+
+              {ticket.calificacion && (
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="text-gray-400">Calificación del cliente</span>
+                  <span className="ml-auto">
+                    <Estrellas calificacion={ticket.calificacion} />
+                  </span>
+                </div>
+              )}
+              {ticket.comentarioEncuesta && (
+                <p className="text-gray-500 text-xs italic border-t border-gray-800 pt-3">
+                  &ldquo;{ticket.comentarioEncuesta}&rdquo;
+                </p>
               )}
             </div>
           </div>
