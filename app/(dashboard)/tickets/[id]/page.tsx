@@ -9,6 +9,8 @@ import api from "@/lib/axios";
 import {
   Ticket,
   Usuario,
+  Categoria,
+  Empresa,
   ESTADO_LABELS,
   ESTADO_COLORS,
   PRIORIDAD_LABELS,
@@ -26,9 +28,19 @@ import {
   User,
   Clock,
   Tag,
+  Building2,
   AlertCircle,
   UserCheck,
 } from "lucide-react";
+
+// Colores sólidos para el botón del estado actual — más marcados que las
+// badges tenues (bg-*/10) para que se note claramente cuál está activo.
+const ESTADO_BUTTON_ACTIVE: Record<number, string> = {
+  1: "bg-yellow-600 text-white",
+  2: "bg-blue-600 text-white",
+  3: "bg-green-600 text-white",
+  4: "bg-gray-600 text-white",
+};
 
 export default function TicketDetallePage() {
   const { id } = useParams();
@@ -37,6 +49,8 @@ export default function TicketDetallePage() {
 
   const [ticket, setTicket] = useState<Ticket | null>(null);
   const [tecnicos, setTecnicos] = useState<Usuario[]>([]);
+  const [categorias, setCategorias] = useState<Categoria[]>([]);
+  const [empresas, setEmpresas] = useState<Empresa[]>([]);
   const [loading, setLoading] = useState(true);
   const [comentario, setComentario] = useState("");
   const [enviandoComentario, setEnviandoComentario] = useState(false);
@@ -48,12 +62,16 @@ export default function TicketDetallePage() {
 
   const fetchData = async () => {
     try {
-      const [ticketRes, tecnicosRes] = await Promise.all([
+      const [ticketRes, tecnicosRes, categoriasRes, empresasRes] = await Promise.all([
         api.get(`/tickets/${id}`),
         api.get("/usuarios/tecnicos"),
+        api.get("/categorias"),
+        api.get("/empresas"),
       ]);
       setTicket(ticketRes.data);
       setTecnicos(tecnicosRes.data);
+      setCategorias(categoriasRes.data);
+      setEmpresas(empresasRes.data);
     } catch (err) {
       toast.error("Error al cargar el ticket");
       router.push("/tickets");
@@ -70,6 +88,32 @@ export default function TicketDetallePage() {
       toast.success("Estado actualizado");
     } catch {
       toast.error("Error al actualizar estado");
+    } finally {
+      setActualizando(false);
+    }
+  };
+
+  const cambiarCategoria = async (categoriaId: string) => {
+    setActualizando(true);
+    try {
+      await api.put(`/tickets/${id}`, { categoriaId: categoriaId || undefined });
+      await fetchData();
+      toast.success("Categoría actualizada");
+    } catch {
+      toast.error("Error al actualizar categoría");
+    } finally {
+      setActualizando(false);
+    }
+  };
+
+  const cambiarEmpresa = async (empresaId: string) => {
+    setActualizando(true);
+    try {
+      await api.put(`/tickets/${id}`, { empresaId: empresaId || undefined });
+      await fetchData();
+      toast.success("Empresa actualizada");
+    } catch {
+      toast.error("Error al actualizar empresa");
     } finally {
       setActualizando(false);
     }
@@ -279,6 +323,16 @@ export default function TicketDetallePage() {
                 </div>
               )}
 
+              {ticket.empresa && (
+                <div className="flex items-center gap-2 text-sm">
+                  <Building2 className="w-4 h-4 text-gray-500" />
+                  <span className="text-gray-400">Empresa</span>
+                  <span className="text-white ml-auto">
+                    {ticket.empresa.nombre}
+                  </span>
+                </div>
+              )}
+
               {ticket.fechaResolucion && (
                 <div className="flex items-center gap-2 text-sm">
                   <AlertCircle className="w-4 h-4 text-gray-500" />
@@ -310,13 +364,51 @@ export default function TicketDetallePage() {
                       disabled={actualizando || ticket.estado === estado}
                       className={`text-xs py-2 px-3 rounded-lg transition font-medium disabled:opacity-40 ${
                         ticket.estado === estado
-                          ? ESTADO_COLORS[estado]
+                          ? ESTADO_BUTTON_ACTIVE[estado]
                           : "bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-white"
                       }`}
                     >
                       {ESTADO_LABELS[estado]}
                     </button>
                   ))}
+                </div>
+              </div>
+
+              {/* Categoría y empresa */}
+              <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 space-y-3">
+                <div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <Tag className="w-4 h-4 text-gray-500" />
+                    <h3 className="text-white font-medium text-sm">Categoría</h3>
+                  </div>
+                  <select
+                    value={ticket.categoriaId ?? ""}
+                    onChange={(e) => cambiarCategoria(e.target.value)}
+                    disabled={actualizando}
+                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500 text-sm"
+                  >
+                    <option value="">Sin categoría</option>
+                    {categorias.map((c) => (
+                      <option key={c.id} value={c.id}>{c.nombre}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <Building2 className="w-4 h-4 text-gray-500" />
+                    <h3 className="text-white font-medium text-sm">Empresa</h3>
+                  </div>
+                  <select
+                    value={ticket.empresaId ?? ""}
+                    onChange={(e) => cambiarEmpresa(e.target.value)}
+                    disabled={actualizando}
+                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500 text-sm"
+                  >
+                    <option value="">Sin asignar</option>
+                    {empresas.map((e) => (
+                      <option key={e.id} value={e.id}>{e.nombre}</option>
+                    ))}
+                  </select>
                 </div>
               </div>
 

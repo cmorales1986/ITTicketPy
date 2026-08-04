@@ -62,12 +62,14 @@ export async function notificarTicketCreado(
   numero: string,
   ticketNumero: string,
   nombre: string,
+  link: string,
   sugerencia?: string | null,
 ) {
   let body = `${saludo()}. Gracias por contactarnos *${nombre}*. Creamos tu ticket ${ticketNumero}. Te contactaremos pronto.`;
   if (sugerencia) {
     body += `\n\nMientras tanto, esto te puede ayudar: ${sugerencia}\n\n(De todas formas, un técnico va a revisar tu caso)`;
   }
+  body += `\n\nPodés seguir el estado de tu ticket acá: ${link}`;
   sendWhatsappDeferred(numero, body);
 }
 

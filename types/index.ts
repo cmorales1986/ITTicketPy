@@ -1,9 +1,17 @@
+export interface Empresa {
+  id: string;
+  nombre: string;
+  activa: boolean;
+}
+
 export interface Usuario {
   id: string;
   nombre: string;
   email: string;
   rol: number; // 0=Usuario, 1=Técnico, 2=Admin
   numeroWhatsApp?: string;
+  empresaId?: string;
+  empresa?: Empresa;
   activo: boolean;
 }
 
@@ -39,8 +47,12 @@ export interface Ticket {
   tecnicoAsignado?: Usuario;
   categoriaId?: string;
   categoria?: Categoria;
+  empresaId?: string;
+  empresa?: Empresa;
   fechaCreacion: string;
   fechaResolucion?: string;
+  calificacion?: number;
+  comentarioEncuesta?: string;
   comentarios?: Comentario[];
   historiales?: Historial[];
 }
@@ -62,11 +74,14 @@ export const PRIORIDAD_LABELS: Record<number, string> = {
   4: 'Crítica',
 };
 
+// Paleta oscura consistente con el resto del panel (fondo tenue + texto de
+// acento) — las clases bg-*-100/text-*-700 de antes eran para tema claro y
+// se veían lavadas sobre el fondo oscuro.
 export const PRIORIDAD_COLORS: Record<number, string> = {
-  1: 'bg-gray-100 text-gray-700',
-  2: 'bg-blue-100 text-blue-700',
-  3: 'bg-orange-100 text-orange-700',
-  4: 'bg-red-100 text-red-700',
+  1: 'bg-gray-500/10 text-gray-400',
+  2: 'bg-blue-500/10 text-blue-400',
+  3: 'bg-orange-500/10 text-orange-400',
+  4: 'bg-red-500/10 text-red-400',
 };
 
 export const ESTADO_LABELS: Record<number, string> = {
@@ -77,8 +92,8 @@ export const ESTADO_LABELS: Record<number, string> = {
 };
 
 export const ESTADO_COLORS: Record<number, string> = {
-  1: 'bg-yellow-100 text-yellow-700',
-  2: 'bg-blue-100 text-blue-700',
-  3: 'bg-green-100 text-green-700',
-  4: 'bg-gray-100 text-gray-700',
+  1: 'bg-yellow-500/10 text-yellow-400',
+  2: 'bg-blue-500/10 text-blue-400',
+  3: 'bg-green-500/10 text-green-400',
+  4: 'bg-gray-500/10 text-gray-400',
 };

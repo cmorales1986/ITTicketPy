@@ -6,7 +6,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useAuthStore } from '@/store/auth.store';
 import {
   LayoutDashboard, Ticket, Kanban,
-  Users, Tag, LogOut, ChevronRight, Menu, X,
+  Users, Tag, Building2, LogOut, ChevronRight, Menu, X,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -16,6 +16,7 @@ const navItems = [
   { href: '/kanban', label: 'Kanban', icon: Kanban, roles: [1, 2, 3] },
   { href: '/usuarios', label: 'Usuarios', icon: Users, roles: [2, 3] },
   { href: '/categorias', label: 'Categorías', icon: Tag, roles: [2, 3] },
+  { href: '/empresas', label: 'Empresas', icon: Building2, roles: [2, 3] },
 ];
 
 export default function Sidebar() {

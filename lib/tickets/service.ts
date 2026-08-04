@@ -35,6 +35,7 @@ export interface UpdateTicketInput {
   prioridad?: number;
   estado?: number;
   categoriaId?: string;
+  empresaId?: string;
 }
 
 async function registrarHistorial(
@@ -66,6 +67,7 @@ export async function findAllTickets(estado?: number, prioridad?: number) {
       usuario: true,
       tecnicoAsignado: true,
       categoria: true,
+      empresa: true,
     },
     orderBy: (t, { desc }) => [desc(t.fechaCreacion)],
   });
@@ -78,6 +80,7 @@ export async function findTicketById(id: string) {
       usuario: true,
       tecnicoAsignado: true,
       categoria: true,
+      empresa: true,
       comentarios: {
         with: { usuario: true },
         orderBy: (c, { asc }) => [asc(c.fechaCreacion)],
@@ -131,17 +134,21 @@ export async function createTicket(
   sugerenciaIA?: string | null,
 ) {
   const numero = await generateNumero();
+  const usuario = await db.query.usuarios.findFirst({ where: eq(usuarios.id, usuarioId) });
 
   const [ticket] = await db
     .insert(tickets)
-    .values({ ...dto, numero, usuarioId })
+    // El ticket hereda la empresa del usuario que lo crea. Si el usuario
+    // todavía no tiene empresa asignada (p. ej. contacto nuevo por
+    // WhatsApp), el ticket queda sin empresa hasta que un admin la complete.
+    .values({ ...dto, numero, usuarioId, empresaId: usuario?.empresaId })
     .returning();
 
   await registrarHistorial(ticket.id, usuarioId, 'CREACION', 'Ticket creado');
 
-  const usuario = await db.query.usuarios.findFirst({ where: eq(usuarios.id, usuarioId) });
   if (usuario?.numeroWhatsApp) {
-    await notificarTicketCreado(usuario.numeroWhatsApp, numero, usuario.nombre, sugerenciaIA);
+    const link = `${process.env.APP_URL}/seguimiento/${ticket.id}`;
+    await notificarTicketCreado(usuario.numeroWhatsApp, numero, usuario.nombre, link, sugerenciaIA);
   }
 
   return ticket;

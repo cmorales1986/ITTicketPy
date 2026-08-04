@@ -10,6 +10,12 @@ import {
 } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 
+export const empresas = pgTable('empresas', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  nombre: varchar('nombre', { length: 255 }).notNull(),
+  activa: boolean('activa').notNull().default(true),
+});
+
 export const usuarios = pgTable('usuarios', {
   id: uuid('id').defaultRandom().primaryKey(),
   email: varchar('email', { length: 255 }).notNull().unique(),
@@ -17,6 +23,7 @@ export const usuarios = pgTable('usuarios', {
   nombre: varchar('nombre', { length: 255 }).notNull(),
   passwordHash: text('passwordHash').notNull(),
   rol: integer('rol').notNull().default(0), // 0=Usuario, 1=Técnico, 2=Admin
+  empresaId: uuid('empresaId').references(() => empresas.id),
   activo: boolean('activo').notNull().default(true),
   fechaCreacion: timestamp('fechaCreacion').notNull().defaultNow(),
 });
@@ -40,6 +47,7 @@ export const tickets = pgTable('tickets', {
     .references(() => usuarios.id),
   tecnicoAsignadoId: uuid('tecnicoAsignadoId').references(() => usuarios.id),
   categoriaId: uuid('categoriaId').references(() => categorias.id),
+  empresaId: uuid('empresaId').references(() => empresas.id),
   tiempoResponseMinutos: integer('tiempoResponseMinutos').notNull().default(480),
   fechaCreacion: timestamp('fechaCreacion').notNull().defaultNow(),
   fechaResolucion: timestamp('fechaResolucion'),
@@ -85,7 +93,16 @@ export const historial = pgTable('historial', {
   fechaCreacion: timestamp('fechaCreacion').notNull().defaultNow(),
 });
 
-export const usuariosRelations = relations(usuarios, ({ many }) => ({
+export const empresasRelations = relations(empresas, ({ many }) => ({
+  usuarios: many(usuarios),
+  tickets: many(tickets),
+}));
+
+export const usuariosRelations = relations(usuarios, ({ one, many }) => ({
+  empresa: one(empresas, {
+    fields: [usuarios.empresaId],
+    references: [empresas.id],
+  }),
   ticketsCreados: many(tickets, { relationName: 'creador' }),
   ticketsAsignados: many(tickets, { relationName: 'tecnico' }),
 }));
@@ -108,6 +125,10 @@ export const ticketsRelations = relations(tickets, ({ one, many }) => ({
   categoria: one(categorias, {
     fields: [tickets.categoriaId],
     references: [categorias.id],
+  }),
+  empresa: one(empresas, {
+    fields: [tickets.empresaId],
+    references: [empresas.id],
   }),
   comentarios: many(comentarios),
   adjuntos: many(adjuntos),

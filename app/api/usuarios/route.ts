@@ -14,7 +14,9 @@ export async function GET() {
       rol: true,
       activo: true,
       numeroWhatsApp: true,
+      empresaId: true,
     },
+    with: { empresa: true },
   });
   return NextResponse.json(result);
 }

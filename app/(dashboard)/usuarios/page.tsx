@@ -5,7 +5,7 @@
 
 import { useEffect, useState } from 'react';
 import api from '@/lib/axios';
-import { Usuario } from '@/types';
+import { Usuario, Empresa } from '@/types';
 import { toast } from 'sonner';
 import { useAuthStore } from '@/store/auth.store';
 import { useRouter } from 'next/navigation';
@@ -44,6 +44,7 @@ const schema = z.object({
   password: z.string().min(6, 'Mínimo 6 caracteres'),
   rol: z.number().min(0).max(3),
   numeroWhatsApp: z.string().optional(),
+  empresaId: z.string().optional(),
 });
 
 type FormData = z.infer<typeof schema>;
@@ -53,6 +54,7 @@ const editSchema = z.object({
   email: z.string().email('Email inválido'),
   rol: z.number().min(0).max(3),
   numeroWhatsApp: z.string().optional(),
+  empresaId: z.string().optional(),
   password: z
     .string()
     .optional()
@@ -65,6 +67,7 @@ export default function UsuariosPage() {
   const router = useRouter();
   const { usuario } = useAuthStore();
   const [usuarios, setUsuarios] = useState<Usuario[]>([]);
+  const [empresas, setEmpresas] = useState<Empresa[]>([]);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -92,6 +95,7 @@ export default function UsuariosPage() {
       email: u.email,
       rol: u.rol,
       numeroWhatsApp: u.numeroWhatsApp ?? '',
+      empresaId: u.empresaId ?? '',
     });
   };
 
@@ -119,6 +123,7 @@ export default function UsuariosPage() {
       return;
     }
     fetchUsuarios();
+    fetchEmpresas();
   }, []);
 
   const fetchUsuarios = async () => {
@@ -129,6 +134,15 @@ export default function UsuariosPage() {
       toast.error('Error al cargar usuarios');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchEmpresas = async () => {
+    try {
+      const res = await api.get('/empresas');
+      setEmpresas(res.data);
+    } catch {
+      toast.error('Error al cargar empresas');
     }
   };
 
@@ -217,11 +231,12 @@ export default function UsuariosPage() {
       {/* Tabla */}
       <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
         <div className="overflow-x-auto">
-        <table className="w-full min-w-[640px]">
+        <table className="w-full min-w-[760px]">
           <thead>
             <tr className="border-b border-gray-800">
               <th className="text-left text-gray-500 text-xs font-medium px-5 py-3 uppercase tracking-wider">Usuario</th>
               <th className="text-left text-gray-500 text-xs font-medium px-5 py-3 uppercase tracking-wider">Rol</th>
+              <th className="text-left text-gray-500 text-xs font-medium px-5 py-3 uppercase tracking-wider">Empresa</th>
               <th className="text-left text-gray-500 text-xs font-medium px-5 py-3 uppercase tracking-wider">WhatsApp</th>
               <th className="text-left text-gray-500 text-xs font-medium px-5 py-3 uppercase tracking-wider">Estado</th>
               <th className="text-left text-gray-500 text-xs font-medium px-5 py-3 uppercase tracking-wider">Acciones</th>
@@ -249,6 +264,11 @@ export default function UsuariosPage() {
                     <span className={`inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full font-medium ${ROL_COLORS[u.rol]}`}>
                       <RolIcon className="w-3 h-3" />
                       {ROL_LABELS[u.rol]}
+                    </span>
+                  </td>
+                  <td className="px-5 py-4">
+                    <span className="text-gray-400 text-sm">
+                      {u.empresa?.nombre || <span className="text-gray-600">-</span>}
                     </span>
                   </td>
                   <td className="px-5 py-4">
@@ -375,6 +395,19 @@ export default function UsuariosPage() {
                 </div>
               </div>
 
+              <div>
+                <label className="text-sm text-gray-400 mb-1 block">Empresa</label>
+                <select
+                  {...register('empresaId')}
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-blue-500 text-sm"
+                >
+                  <option value="">Sin asignar</option>
+                  {empresas.map(e => (
+                    <option key={e.id} value={e.id}>{e.nombre}</option>
+                  ))}
+                </select>
+              </div>
+
               <div className="flex gap-3 pt-2">
                 <button
                   type="button"
@@ -474,6 +507,19 @@ export default function UsuariosPage() {
                     className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 text-sm"
                   />
                 </div>
+              </div>
+
+              <div>
+                <label className="text-sm text-gray-400 mb-1 block">Empresa</label>
+                <select
+                  {...registerEdit('empresaId')}
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-blue-500 text-sm"
+                >
+                  <option value="">Sin asignar</option>
+                  {empresas.map(e => (
+                    <option key={e.id} value={e.id}>{e.nombre}</option>
+                  ))}
+                </select>
               </div>
 
               <div className="flex gap-3 pt-2">

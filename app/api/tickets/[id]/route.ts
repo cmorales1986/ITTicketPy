@@ -10,6 +10,7 @@ const updateTicketSchema = z.object({
   prioridad: z.number().min(1).max(4).optional(),
   estado: z.number().min(1).max(4).optional(),
   categoriaId: optionalUuid,
+  empresaId: optionalUuid,
 });
 
 export async function GET(

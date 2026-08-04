@@ -5,6 +5,7 @@ import { db } from '@/lib/db';
 import { usuarios } from '@/lib/db/schema';
 import { hashPassword } from '@/lib/auth/password';
 import { toPublicUsuario } from '@/lib/auth/serialize';
+import { optionalUuid } from '@/lib/validation';
 
 const registerSchema = z.object({
   nombre: z.string(),
@@ -12,6 +13,7 @@ const registerSchema = z.object({
   password: z.string().min(6),
   numeroWhatsApp: z.string().optional(),
   rol: z.number().min(0).max(3).optional(),
+  empresaId: optionalUuid,
 });
 
 export async function POST(request: NextRequest) {
@@ -38,6 +40,7 @@ export async function POST(request: NextRequest) {
       passwordHash,
       numeroWhatsApp: dto.numeroWhatsApp,
       rol: dto.rol,
+      empresaId: dto.empresaId,
     })
     .returning();
 
