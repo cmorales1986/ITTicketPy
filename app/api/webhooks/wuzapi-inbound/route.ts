@@ -183,6 +183,38 @@ async function adjuntarMediaWuzapi(
   await agregarAdjunto(ticketId, usuarioId, nombreArchivo, blob.url, descarga.buffer.length);
 }
 
+// Punto único donde se decide si un texto (mensaje nuevo, o la suma de un
+// borrador + la respuesta a la repregunta) alcanza para crear el ticket, o
+// si todavía falta detalle y hay que volver a preguntar. Se usa tanto para
+// mensajes frescos como para las dos ramas que retoman una conversación
+// pendiente (confirmación de contexto y borrador esperando más info).
+async function intentarCrearTicket(
+  usuarioId: string,
+  phone: string,
+  texto: string,
+  mediaMessage: WuzapiMediaMessage | undefined,
+  message: WuzapiMessageContent | undefined,
+): Promise<void> {
+  const analisis = await analizarTicket(texto);
+
+  if (!analisis.completo) {
+    await guardarBorrador(usuarioId, texto);
+    await notificarPreguntaAdicional(phone, analisis.pregunta!);
+    return;
+  }
+
+  await limpiarBorrador(usuarioId);
+  const sugerencia = await generarSugerencia(texto);
+  const nuevoTicket = await createTicket(
+    { titulo: analisis.titulo!, descripcion: analisis.descripcion!, prioridad: 2 },
+    usuarioId,
+    sugerencia,
+  );
+  if (mediaMessage && message) {
+    await adjuntarMediaWuzapi(nuevoTicket.id, usuarioId, message);
+  }
+}
+
 export async function POST(request: NextRequest) {
   const rawBody = await request.text();
 
@@ -254,23 +286,7 @@ export async function POST(request: NextRequest) {
 
     if (decision === 'nuevo') {
       await limpiarConfirmacionPendiente(usuarioExistente.id);
-      const analisis = await analizarTicket(confirmacionPendiente.texto);
-
-      if (!analisis.completo) {
-        await guardarBorrador(usuarioExistente.id, confirmacionPendiente.texto);
-        await notificarPreguntaAdicional(phone, analisis.pregunta!);
-        return NextResponse.json({ ok: true });
-      }
-
-      const sugerencia = await generarSugerencia(confirmacionPendiente.texto);
-      const nuevoTicket = await createTicket(
-        { titulo: analisis.titulo!, descripcion: analisis.descripcion!, prioridad: 2 },
-        usuarioExistente.id,
-        sugerencia,
-      );
-      if (mediaMessage && message) {
-        await adjuntarMediaWuzapi(nuevoTicket.id, usuarioExistente.id, message);
-      }
+      await intentarCrearTicket(usuarioExistente.id, phone, confirmacionPendiente.texto, mediaMessage, message);
       return NextResponse.json({ ok: true });
     }
 
@@ -280,6 +296,18 @@ export async function POST(request: NextRequest) {
     if (ticketPendiente) {
       await notificarConfirmarContexto(phone, ticketPendiente.numero, ticketPendiente.titulo);
     }
+    return NextResponse.json({ ok: true });
+  }
+
+  // Le habíamos pedido más detalle sobre un problema y estamos esperando
+  // esa respuesta — la chequeamos ANTES de mirar si hay un ticket abierto:
+  // este flujo puede dispararse mientras el ticket viejo sigue abierto (ej.
+  // el cliente dijo que era "un problema nuevo"), y si mirásemos el ticket
+  // abierto primero, esta respuesta se perdería ahí adentro sin completar
+  // nunca el ticket nuevo.
+  const borradorPrevio = obtenerBorradorVigente(usuarioExistente);
+  if (borradorPrevio && textoEfectivo) {
+    await intentarCrearTicket(usuarioExistente.id, phone, `${borradorPrevio}\n${textoEfectivo}`, mediaMessage, message);
     return NextResponse.json({ ok: true });
   }
 
@@ -325,44 +353,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true });
   }
 
-  // Si le habíamos pedido más detalle sobre un problema, este mensaje es
-  // la respuesta a esa pregunta — lo sumamos al borrador en vez de
-  // clasificarlo de nuevo (clasificar de nuevo podría descartarlo si la
-  // respuesta, sola, no suena a pedido de soporte, ej: "sí" o "error 500").
-  const borradorPrevio = obtenerBorradorVigente(usuarioExistente);
-  const textoAcumulado = borradorPrevio ? `${borradorPrevio}\n${textoEfectivo}` : textoEfectivo;
-
-  if (!borradorPrevio) {
-    // Mensaje nuevo: clasificamos antes de avanzar, porque también puede
-    // estar saludando u otra consulta ajena a soporte.
-    const esSoporte = await esSolicitudDeSoporte(textoEfectivo);
-    if (!esSoporte) {
-      return NextResponse.json({ ok: true });
-    }
-  }
-
-  // Con el pedido ya confirmado como soporte, vemos si hay detalle
-  // suficiente para armar un ticket útil o si conviene repreguntar.
-  const analisis = await analizarTicket(textoAcumulado);
-
-  if (!analisis.completo) {
-    await guardarBorrador(usuarioExistente.id, textoAcumulado);
-    await notificarPreguntaAdicional(phone, analisis.pregunta!);
+  // Mensaje fresco (no es continuación de nada pendiente): clasificamos
+  // antes de avanzar, porque también puede estar saludando u otra consulta
+  // ajena a soporte.
+  const esSoporte = await esSolicitudDeSoporte(textoEfectivo);
+  if (!esSoporte) {
     return NextResponse.json({ ok: true });
   }
 
-  await limpiarBorrador(usuarioExistente.id);
-
-  const sugerencia = await generarSugerencia(textoAcumulado);
-  const nuevoTicket = await createTicket(
-    { titulo: analisis.titulo!, descripcion: analisis.descripcion!, prioridad: 2 },
-    usuarioExistente.id,
-    sugerencia,
-  );
-
-  if (mediaMessage && message) {
-    await adjuntarMediaWuzapi(nuevoTicket.id, usuarioExistente.id, message);
-  }
-
+  await intentarCrearTicket(usuarioExistente.id, phone, textoEfectivo, mediaMessage, message);
   return NextResponse.json({ ok: true });
 }
