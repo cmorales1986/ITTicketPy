@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { and, eq, ne } from 'drizzle-orm';
+import { and, eq, ne, or } from 'drizzle-orm';
 import { requireSession } from '@/lib/auth/guard';
 import { db } from '@/lib/db';
-import { usuarios } from '@/lib/db/schema';
+import { usuarios, tickets, comentarios, historial } from '@/lib/db/schema';
 import { hashPassword } from '@/lib/auth/password';
 import { optionalUuid } from '@/lib/validation';
 
@@ -64,4 +64,44 @@ export async function PATCH(
     return NextResponse.json({ message: 'Usuario no encontrado' }, { status: 404 });
   }
   return NextResponse.json(usuario);
+}
+
+export async function DELETE(
+  _request: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  const { session, error } = await requireSession();
+  if (error) return error;
+
+  const { id } = await params;
+
+  if (id === session.sub) {
+    return NextResponse.json({ message: 'No podés eliminar tu propia cuenta' }, { status: 400 });
+  }
+
+  // Solo se puede borrar un usuario que nunca tuvo movimiento — ni tickets
+  // (creados o asignados), ni comentarios, ni historial. Si tuvo actividad,
+  // sugerimos desactivarlo en vez de perder ese rastro.
+  const [ticketRelacionado, comentarioRelacionado, historialRelacionado] = await Promise.all([
+    db.query.tickets.findFirst({
+      where: or(eq(tickets.usuarioId, id), eq(tickets.tecnicoAsignadoId, id)),
+    }),
+    db.query.comentarios.findFirst({ where: eq(comentarios.usuarioId, id) }),
+    db.query.historial.findFirst({ where: eq(historial.usuarioId, id) }),
+  ]);
+
+  if (ticketRelacionado || comentarioRelacionado || historialRelacionado) {
+    return NextResponse.json(
+      { message: 'Este usuario tiene tickets, comentarios o actividad asociada. Desactivalo en vez de eliminarlo.' },
+      { status: 409 },
+    );
+  }
+
+  const usuario = await db.query.usuarios.findFirst({ where: eq(usuarios.id, id) });
+  if (!usuario) {
+    return NextResponse.json({ message: 'Usuario no encontrado' }, { status: 404 });
+  }
+
+  await db.delete(usuarios).where(eq(usuarios.id, id));
+  return NextResponse.json({ ok: true });
 }

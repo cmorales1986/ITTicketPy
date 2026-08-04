@@ -11,7 +11,7 @@ import { useAuthStore } from '@/store/auth.store';
 import { useRouter } from 'next/navigation';
 import {
   Plus, Loader2, Users, Shield,
-  Wrench, User, X, Eye, EyeOff, Pencil
+  Wrench, User, X, Eye, EyeOff, Pencil, Trash2
 } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -171,6 +171,17 @@ export default function UsuariosPage() {
     }
   };
 
+  const eliminarUsuario = async (id: string, nombre: string) => {
+    if (!confirm(`¿Eliminar a ${nombre}? Esta acción no se puede deshacer.`)) return;
+    try {
+      await api.delete(`/usuarios/${id}`);
+      toast.success('Usuario eliminado');
+      fetchUsuarios();
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'Error al eliminar usuario');
+    }
+  };
+
   // Stats
   const stats = {
     total: usuarios.length,
@@ -295,16 +306,26 @@ export default function UsuariosPage() {
                         Editar
                       </button>
                       {u.id !== usuario?.id && (
-                        <button
-                          onClick={() => toggleActivo(u.id, u.activo)}
-                          className={`text-xs px-3 py-1.5 rounded-lg transition font-medium ${
-                            u.activo
-                              ? 'bg-red-500/10 text-red-400 hover:bg-red-500/20'
-                              : 'bg-green-500/10 text-green-400 hover:bg-green-500/20'
-                          }`}
-                        >
-                          {u.activo ? 'Desactivar' : 'Activar'}
-                        </button>
+                        <>
+                          <button
+                            onClick={() => toggleActivo(u.id, u.activo)}
+                            className={`text-xs px-3 py-1.5 rounded-lg transition font-medium ${
+                              u.activo
+                                ? 'bg-red-500/10 text-red-400 hover:bg-red-500/20'
+                                : 'bg-green-500/10 text-green-400 hover:bg-green-500/20'
+                            }`}
+                          >
+                            {u.activo ? 'Desactivar' : 'Activar'}
+                          </button>
+                          <button
+                            onClick={() => eliminarUsuario(u.id, u.nombre)}
+                            title="Solo se puede eliminar si no tiene tickets ni actividad"
+                            className="text-xs px-3 py-1.5 rounded-lg transition font-medium bg-gray-800 text-gray-500 hover:bg-red-500/10 hover:text-red-400 flex items-center gap-1.5"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                            Eliminar
+                          </button>
+                        </>
                       )}
                     </div>
                   </td>

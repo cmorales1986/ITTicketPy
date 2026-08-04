@@ -1,6 +1,6 @@
 import { and, count, eq, isNull, ne } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { tickets, comentarios, historial, usuarios } from '@/lib/db/schema';
+import { tickets, comentarios, historial, usuarios, adjuntos } from '@/lib/db/schema';
 import {
   notificarTicketCreado,
   notificarTicketAsignado,
@@ -229,6 +229,31 @@ export async function asignarTicket(id: string, tecnicoId: string, usuarioId: st
   }
 
   return actualizado;
+}
+
+export async function agregarAdjunto(
+  ticketId: string,
+  usuarioId: string,
+  nombreArchivo: string,
+  rutaArchivo: string,
+  tamanio: number,
+) {
+  const [adjunto] = await db
+    .insert(adjuntos)
+    .values({ ticketId, nombreArchivo, rutaArchivo, tamanio })
+    .returning();
+
+  await registrarHistorial(ticketId, usuarioId, 'ADJUNTO', `Archivo adjuntado: ${nombreArchivo}`);
+
+  return adjunto;
+}
+
+export async function eliminarAdjunto(adjuntoId: string) {
+  const adjunto = await db.query.adjuntos.findFirst({ where: eq(adjuntos.id, adjuntoId) });
+  if (!adjunto) return null;
+
+  await db.delete(adjuntos).where(eq(adjuntos.id, adjuntoId));
+  return adjunto;
 }
 
 export async function agregarComentario(ticketId: string, usuarioId: string, contenido: string) {

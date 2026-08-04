@@ -1,4 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
+/* eslint-disable @typescript-eslint/no-explicit-any */
 /* eslint-disable react-hooks/exhaustive-deps */
 /* eslint-disable react-hooks/immutability */
 "use client";
@@ -31,7 +32,16 @@ import {
   Building2,
   AlertCircle,
   UserCheck,
+  Paperclip,
+  Download,
+  Trash2,
 } from "lucide-react";
+
+function formatTamanio(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
 
 // Colores sólidos para el botón del estado actual — más marcados que las
 // badges tenues (bg-*/10) para que se note claramente cuál está activo.
@@ -55,6 +65,7 @@ export default function TicketDetallePage() {
   const [comentario, setComentario] = useState("");
   const [enviandoComentario, setEnviandoComentario] = useState(false);
   const [actualizando, setActualizando] = useState(false);
+  const [subiendoArchivo, setSubiendoArchivo] = useState(false);
 
   useEffect(() => {
     fetchData();
@@ -132,6 +143,40 @@ export default function TicketDetallePage() {
     }
   };
 
+  const subirArchivo = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // permite volver a elegir el mismo archivo después
+    if (!file) return;
+
+    if (file.size > 4 * 1024 * 1024) {
+      toast.error("El archivo supera el límite de 4MB");
+      return;
+    }
+
+    setSubiendoArchivo(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      await api.post(`/tickets/${id}/adjuntos`, formData);
+      await fetchData();
+      toast.success("Archivo adjuntado");
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || "Error al subir el archivo");
+    } finally {
+      setSubiendoArchivo(false);
+    }
+  };
+
+  const eliminarArchivo = async (adjuntoId: string) => {
+    try {
+      await api.delete(`/tickets/${id}/adjuntos/${adjuntoId}`);
+      await fetchData();
+      toast.success("Adjunto eliminado");
+    } catch {
+      toast.error("Error al eliminar el adjunto");
+    }
+  };
+
   const enviarComentario = async () => {
     if (!comentario.trim()) return;
     setEnviandoComentario(true);
@@ -198,6 +243,65 @@ export default function TicketDetallePage() {
             <p className="text-gray-300 text-sm leading-relaxed whitespace-pre-wrap">
               {ticket.descripcion}
             </p>
+          </div>
+
+          {/* Adjuntos */}
+          <div className="bg-gray-900 border border-gray-800 rounded-xl">
+            <div className="p-5 border-b border-gray-800 flex items-center justify-between">
+              <h3 className="text-white font-medium">
+                Adjuntos ({ticket.adjuntos?.length ?? 0})
+              </h3>
+              <label className={`flex items-center gap-2 text-xs px-3 py-1.5 rounded-lg font-medium transition cursor-pointer ${
+                subiendoArchivo
+                  ? "bg-gray-800 text-gray-500 cursor-not-allowed"
+                  : "bg-gray-800 text-gray-300 hover:bg-gray-700"
+              }`}>
+                {subiendoArchivo ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Paperclip className="w-3.5 h-3.5" />
+                )}
+                {subiendoArchivo ? "Subiendo..." : "Adjuntar archivo"}
+                <input
+                  type="file"
+                  className="hidden"
+                  disabled={subiendoArchivo}
+                  onChange={subirArchivo}
+                  accept="image/*,.pdf,.xls,.xlsx,.doc,.docx,.csv"
+                />
+              </label>
+            </div>
+            {ticket.adjuntos?.length === 0 || !ticket.adjuntos ? (
+              <div className="p-6 text-center text-gray-600 text-sm">
+                Sin archivos adjuntos — imágenes, PDF, Excel, Word o CSV, hasta 4MB
+              </div>
+            ) : (
+              <div className="divide-y divide-gray-800">
+                {ticket.adjuntos.map((a) => (
+                  <div key={a.id} className="p-3 px-5 flex items-center gap-3">
+                    <Paperclip className="w-4 h-4 text-gray-500 shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-white text-sm truncate">{a.nombreArchivo}</p>
+                      <p className="text-gray-600 text-xs">{formatTamanio(a.tamanio)}</p>
+                    </div>
+                    <a
+                      href={a.rutaArchivo}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-gray-400 hover:text-white transition p-1.5"
+                    >
+                      <Download className="w-4 h-4" />
+                    </a>
+                    <button
+                      onClick={() => eliminarArchivo(a.id)}
+                      className="text-gray-400 hover:text-red-400 transition p-1.5"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Comentarios */}

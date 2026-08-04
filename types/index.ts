@@ -34,6 +34,15 @@ export interface Categoria {
   activa: boolean;
 }
 
+export interface Adjunto {
+  id: string;
+  ticketId: string;
+  nombreArchivo: string;
+  rutaArchivo: string;
+  tamanio: number;
+  fechaCarga: string;
+}
+
 export interface Ticket {
   id: string;
   numero: string;
@@ -55,6 +64,7 @@ export interface Ticket {
   comentarioEncuesta?: string;
   comentarios?: Comentario[];
   historiales?: Historial[];
+  adjuntos?: Adjunto[];
 }
 
 export interface Comentario {
