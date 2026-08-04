@@ -6,7 +6,7 @@ import { formatDistanceToNow, format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import {
   Plus, ArrowRight, UserCheck,
-  MessageSquare, AlertCircle, Clock, Paperclip
+  MessageSquare, AlertCircle, Clock, Paperclip, MessageCircle
 } from 'lucide-react';
 
 const TIPO_CONFIG: Record<string, {
@@ -43,6 +43,11 @@ const TIPO_CONFIG: Record<string, {
     icon: Paperclip,
     color: 'text-gray-400',
     bgColor: 'bg-gray-500/20 border-gray-500/30',
+  },
+  CHAT: {
+    icon: MessageCircle,
+    color: 'text-green-400',
+    bgColor: 'bg-green-500/20 border-green-500/30',
   },
 };
 

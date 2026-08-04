@@ -35,6 +35,8 @@ import {
   Paperclip,
   Download,
   Trash2,
+  MessageCircle,
+  StickyNote,
 } from "lucide-react";
 
 function formatTamanio(bytes: number): string {
@@ -64,6 +66,8 @@ export default function TicketDetallePage() {
   const [loading, setLoading] = useState(true);
   const [comentario, setComentario] = useState("");
   const [enviandoComentario, setEnviandoComentario] = useState(false);
+  const [mensajeChat, setMensajeChat] = useState("");
+  const [enviandoMensajeChat, setEnviandoMensajeChat] = useState(false);
   const [actualizando, setActualizando] = useState(false);
   const [subiendoArchivo, setSubiendoArchivo] = useState(false);
 
@@ -184,11 +188,26 @@ export default function TicketDetallePage() {
       await api.post(`/tickets/${id}/comentarios`, { contenido: comentario });
       setComentario("");
       await fetchData();
-      toast.success("Comentario agregado");
+      toast.success("Nota agregada");
     } catch {
-      toast.error("Error al enviar comentario");
+      toast.error("Error al enviar la nota");
     } finally {
       setEnviandoComentario(false);
+    }
+  };
+
+  const enviarMensajeChat = async () => {
+    if (!mensajeChat.trim()) return;
+    setEnviandoMensajeChat(true);
+    try {
+      await api.post(`/tickets/${id}/chat`, { contenido: mensajeChat });
+      setMensajeChat("");
+      await fetchData();
+      toast.success("Mensaje enviado");
+    } catch {
+      toast.error("Error al enviar el mensaje");
+    } finally {
+      setEnviandoMensajeChat(false);
     }
   };
 
@@ -304,23 +323,119 @@ export default function TicketDetallePage() {
             )}
           </div>
 
-          {/* Comentarios */}
+          {/* Chat con el cliente (por WhatsApp) */}
           <div className="bg-gray-900 border border-gray-800 rounded-xl">
             <div className="p-5 border-b border-gray-800">
-              <h3 className="text-white font-medium">
-                Comentarios ({ticket.comentarios?.length ?? 0})
+              <h3 className="text-white font-medium flex items-center gap-2">
+                <MessageCircle className="w-4 h-4 text-green-400" />
+                Chat con el cliente ({ticket.mensajesChat?.length ?? 0})
               </h3>
+              <p className="text-gray-500 text-xs mt-1">
+                Lo que escribís acá se manda por WhatsApp al cliente. Sus respuestas aparecen aquí.
+              </p>
+            </div>
+
+            <div className="divide-y divide-gray-800">
+              {ticket.mensajesChat?.length === 0 && (
+                <div className="p-8 text-center text-gray-600 text-sm">
+                  Sin mensajes todavía
+                </div>
+              )}
+              {ticket.mensajesChat?.map((m) => {
+                const esCliente = m.usuarioId === ticket.usuarioId;
+                return (
+                  <div key={m.id} className="p-4 flex gap-3">
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
+                      esCliente ? "bg-gray-600" : "bg-green-600"
+                    }`}>
+                      <span className="text-white text-xs font-bold">
+                        {m.usuario?.nombre?.charAt(0) ?? "U"}
+                      </span>
+                    </div>
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-white text-sm font-medium">
+                          {m.usuario?.nombre ?? "Usuario"}
+                        </span>
+                        {esCliente && (
+                          <span className="text-xs bg-gray-500/10 text-gray-400 px-2 py-0.5 rounded-full">
+                            Cliente
+                          </span>
+                        )}
+                        <span className="text-gray-600 text-xs">
+                          {formatDistanceToNow(new Date(m.fechaCreacion), {
+                            addSuffix: true,
+                            locale: es,
+                          })}
+                        </span>
+                      </div>
+                      <p className="text-gray-300 text-sm">{m.contenido}</p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Input chat */}
+            <div className="p-4 border-t border-gray-800">
+              {!ticket.usuario?.numeroWhatsApp ? (
+                <p className="text-gray-600 text-xs text-center py-2">
+                  Este usuario no tiene WhatsApp registrado — no se le puede escribir desde acá.
+                </p>
+              ) : (
+                <div className="flex gap-3">
+                  <div className="w-8 h-8 bg-green-600 rounded-full flex items-center justify-center shrink-0">
+                    <span className="text-white text-xs font-bold">
+                      {usuario?.nombre?.charAt(0) ?? "U"}
+                    </span>
+                  </div>
+                  <div className="flex-1 flex gap-2">
+                    <input
+                      type="text"
+                      value={mensajeChat}
+                      onChange={(e) => setMensajeChat(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && enviarMensajeChat()}
+                      placeholder="Escribile al cliente por WhatsApp..."
+                      className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-green-500 text-sm"
+                    />
+                    <button
+                      onClick={enviarMensajeChat}
+                      disabled={enviandoMensajeChat || !mensajeChat.trim()}
+                      className="bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white px-4 py-2 rounded-lg transition"
+                    >
+                      {enviandoMensajeChat ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Send className="w-4 h-4" />
+                      )}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Notas internas — nunca se envían al cliente */}
+          <div className="bg-gray-900 border border-gray-800 rounded-xl">
+            <div className="p-5 border-b border-gray-800">
+              <h3 className="text-white font-medium flex items-center gap-2">
+                <StickyNote className="w-4 h-4 text-yellow-400" />
+                Notas internas ({ticket.comentarios?.length ?? 0})
+              </h3>
+              <p className="text-gray-500 text-xs mt-1">
+                Solo las ve el equipo — el cliente nunca recibe esto.
+              </p>
             </div>
 
             <div className="divide-y divide-gray-800">
               {ticket.comentarios?.length === 0 && (
                 <div className="p-8 text-center text-gray-600 text-sm">
-                  No hay comentarios aún
+                  No hay notas aún
                 </div>
               )}
               {ticket.comentarios?.map((c) => (
                 <div key={c.id} className="p-4 flex gap-3">
-                  <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center shrink-0">
+                  <div className="w-8 h-8 bg-yellow-600 rounded-full flex items-center justify-center shrink-0">
                     <span className="text-white text-xs font-bold">
                       {c.usuario?.nombre?.charAt(0) ?? "U"}
                     </span>
@@ -330,11 +445,6 @@ export default function TicketDetallePage() {
                       <span className="text-white text-sm font-medium">
                         {c.usuario?.nombre ?? "Usuario"}
                       </span>
-                      {c.interno && (
-                        <span className="text-xs bg-yellow-500/10 text-yellow-400 px-2 py-0.5 rounded-full">
-                          Interno
-                        </span>
-                      )}
                       <span className="text-gray-600 text-xs">
                         {formatDistanceToNow(new Date(c.fechaCreacion), {
                           addSuffix: true,
@@ -348,10 +458,10 @@ export default function TicketDetallePage() {
               ))}
             </div>
 
-            {/* Input comentario */}
+            {/* Input nota interna */}
             <div className="p-4 border-t border-gray-800">
               <div className="flex gap-3">
-                <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center shrink-0">
+                <div className="w-8 h-8 bg-yellow-600 rounded-full flex items-center justify-center shrink-0">
                   <span className="text-white text-xs font-bold">
                     {usuario?.nombre?.charAt(0) ?? "U"}
                   </span>
@@ -362,7 +472,7 @@ export default function TicketDetallePage() {
                     value={comentario}
                     onChange={(e) => setComentario(e.target.value)}
                     onKeyDown={(e) => e.key === "Enter" && enviarComentario()}
-                    placeholder="Escribí un comentario..."
+                    placeholder="Escribí una nota interna..."
                     className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 text-sm"
                   />
                   <button

@@ -80,6 +80,21 @@ export const adjuntos = pgTable('adjuntos', {
   fechaCarga: timestamp('fechaCarga').notNull().defaultNow(),
 });
 
+// Conversación directa con el cliente (por WhatsApp), separada de los
+// comentarios internos del equipo. Los mensajes del técnico se envían por
+// WhatsApp; las respuestas del cliente por WhatsApp caen acá también.
+export const mensajesChat = pgTable('mensajesChat', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  ticketId: uuid('ticketId')
+    .notNull()
+    .references(() => tickets.id),
+  usuarioId: uuid('usuarioId')
+    .notNull()
+    .references(() => usuarios.id),
+  contenido: text('contenido').notNull(),
+  fechaCreacion: timestamp('fechaCreacion').notNull().defaultNow(),
+});
+
 export const historial = pgTable('historial', {
   id: uuid('id').defaultRandom().primaryKey(),
   ticketId: uuid('ticketId')
@@ -133,6 +148,18 @@ export const ticketsRelations = relations(tickets, ({ one, many }) => ({
   comentarios: many(comentarios),
   adjuntos: many(adjuntos),
   historiales: many(historial),
+  mensajesChat: many(mensajesChat),
+}));
+
+export const mensajesChatRelations = relations(mensajesChat, ({ one }) => ({
+  ticket: one(tickets, {
+    fields: [mensajesChat.ticketId],
+    references: [tickets.id],
+  }),
+  usuario: one(usuarios, {
+    fields: [mensajesChat.usuarioId],
+    references: [usuarios.id],
+  }),
 }));
 
 export const comentariosRelations = relations(comentarios, ({ one }) => ({

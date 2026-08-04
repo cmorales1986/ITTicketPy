@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
+import { put } from '@vercel/blob';
 import {
   createTicket,
   findOpenTicketForUsuario,
   findTicketPendienteEncuesta,
   guardarEncuesta,
-  agregarComentario,
+  agregarMensajeChat,
+  agregarAdjunto,
 } from '@/lib/tickets/service';
 import { findOrCreateUsuarioByWhatsapp, findUsuarioByWhatsapp } from '@/lib/usuarios/find-or-create';
 import { esSolicitudDeSoporte } from '@/lib/ai/clasificar-mensaje';
@@ -23,9 +25,24 @@ interface WuzapiMessageInfo {
   PushName: string;
 }
 
+interface WuzapiMediaMessage {
+  URL?: string;
+  directPath?: string;
+  mediaKey?: string; // base64
+  mimetype?: string;
+  fileSHA256?: string; // base64
+  fileEncSHA256?: string; // base64
+  fileLength?: number;
+  caption?: string;
+  fileName?: string; // solo documentMessage
+  title?: string; // solo documentMessage
+}
+
 interface WuzapiMessageContent {
   conversation?: string;
   extendedTextMessage?: { text?: string };
+  imageMessage?: WuzapiMediaMessage;
+  documentMessage?: WuzapiMediaMessage;
 }
 
 interface WuzapiWebhookPayload {
@@ -68,6 +85,77 @@ function parseCalificacion(texto: string): number | null {
   return match ? Number(match[1]) : null;
 }
 
+// Le pide a wuzapi que descargue (y decodifique) la imagen/documento de un
+// mensaje entrante — el webhook solo trae la referencia cifrada, no el
+// archivo en sí.
+async function descargarMediaWuzapi(
+  media: WuzapiMediaMessage,
+  tipo: 'image' | 'document',
+): Promise<{ buffer: Buffer; mimetype: string } | null> {
+  const url = process.env.WUZAPI_URL;
+  const token = process.env.WUZAPI_TOKEN;
+  if (!url || !token) return null;
+  const base = url.replace(/\/$/, '');
+  const endpoint = tipo === 'image' ? '/chat/downloadimage' : '/chat/downloaddocument';
+
+  try {
+    const res = await fetch(`${base}${endpoint}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Token: token },
+      body: JSON.stringify({
+        Url: media.URL,
+        DirectPath: media.directPath,
+        MediaKey: media.mediaKey,
+        Mimetype: media.mimetype,
+        FileSHA256: media.fileSHA256,
+        FileEncSHA256: media.fileEncSHA256,
+        FileLength: media.fileLength,
+      }),
+    });
+    const json = await res.json();
+    const dataUrl: string | undefined = json?.data?.Data;
+    if (!dataUrl || !dataUrl.includes(',')) return null;
+
+    const base64 = dataUrl.slice(dataUrl.indexOf(',') + 1);
+    return {
+      buffer: Buffer.from(base64, 'base64'),
+      mimetype: json?.data?.Mimetype || media.mimetype || 'application/octet-stream',
+    };
+  } catch (err) {
+    console.error('Error descargando media de wuzapi:', err);
+    return null;
+  }
+}
+
+// Descarga la imagen/documento adjunto al mensaje (si hay) y lo sube como
+// adjunto del ticket correspondiente.
+async function adjuntarMediaWuzapi(
+  ticketId: string,
+  usuarioId: string,
+  message: WuzapiMessageContent,
+): Promise<void> {
+  const esImagen = !!message.imageMessage;
+  const media = message.imageMessage || message.documentMessage;
+  if (!media) return;
+
+  const descarga = await descargarMediaWuzapi(media, esImagen ? 'image' : 'document');
+  if (!descarga) return;
+
+  const extension = (descarga.mimetype.split('/')[1] || 'bin').split(';')[0];
+  const nombreArchivo =
+    message.documentMessage?.fileName ||
+    message.documentMessage?.title ||
+    `imagen-${Date.now()}.${extension}`;
+
+  const blob = await put(`tickets/${ticketId}/${Date.now()}-${nombreArchivo}`, descarga.buffer, {
+    access: 'public',
+    addRandomSuffix: true,
+    contentType: descarga.mimetype,
+  });
+
+  await agregarAdjunto(ticketId, usuarioId, nombreArchivo, blob.url, descarga.buffer.length);
+}
+
 export async function POST(request: NextRequest) {
   const rawBody = await request.text();
 
@@ -91,7 +179,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ message: 'JSON inválido' }, { status: 400 });
   }
 
-  // We only care about incoming text messages; ignore everything else
+  // We only care about incoming text/media messages; ignore everything else
   // (receipts, presence, our own outgoing messages, group chats).
   const info = payload.type === 'Message' ? payload.event?.Info : undefined;
   if (!info || info.IsFromMe || info.IsGroup) {
@@ -100,7 +188,11 @@ export async function POST(request: NextRequest) {
 
   const message = payload.event?.Message;
   const text = (message?.conversation || message?.extendedTextMessage?.text || '').trim();
-  if (!text) {
+  const mediaMessage = message?.imageMessage || message?.documentMessage;
+  // Texto del mensaje, o el pie de foto/documento si no hay texto suelto.
+  const textoEfectivo = text || mediaMessage?.caption?.trim() || '';
+
+  if (!textoEfectivo && !mediaMessage) {
     return NextResponse.json({ ok: true });
   }
 
@@ -109,18 +201,25 @@ export async function POST(request: NextRequest) {
 
   // Primer contacto de este número: lo registramos y respondemos con la
   // bienvenida, sin crear ticket todavía — recién su próximo mensaje se
-  // clasifica y (si corresponde) genera el ticket.
+  // clasifica y (si corresponde) genera el ticket. Si mandó una imagen sin
+  // ticket todavía, no hay dónde adjuntarla — se pierde en este primer paso.
   if (!usuarioExistente) {
     await findOrCreateUsuarioByWhatsapp(phone, info.PushName);
     await notificarBienvenida(phone, info.PushName);
     return NextResponse.json({ ok: true });
   }
 
-  // Si ya tiene un ticket abierto, el mensaje es un comentario de esa
-  // conversación en curso — no hace falta clasificarlo.
+  // Si ya tiene un ticket abierto, el mensaje es parte del chat de esa
+  // conversación en curso — no hace falta clasificarlo. Los adjuntos van
+  // directo al ticket.
   const abierto = await findOpenTicketForUsuario(usuarioExistente.id);
   if (abierto) {
-    await agregarComentario(abierto.id, usuarioExistente.id, text);
+    if (textoEfectivo) {
+      await agregarMensajeChat(abierto.id, usuarioExistente.id, textoEfectivo);
+    }
+    if (mediaMessage && message) {
+      await adjuntarMediaWuzapi(abierto.id, usuarioExistente.id, message);
+    }
     return NextResponse.json({ ok: true });
   }
 
@@ -137,20 +236,30 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  // Una imagen/documento sin ningún texto y sin ticket abierto no se puede
+  // clasificar — no hacemos nada con ese mensaje.
+  if (!textoEfectivo) {
+    return NextResponse.json({ ok: true });
+  }
+
   // Ya nos conoce (escribió antes): clasificamos antes de crear un ticket
   // nuevo, porque también puede estar saludando u otra consulta. Si no es
   // una solicitud de soporte, no respondemos nada.
-  const esSoporte = await esSolicitudDeSoporte(text);
+  const esSoporte = await esSolicitudDeSoporte(textoEfectivo);
   if (!esSoporte) {
     return NextResponse.json({ ok: true });
   }
 
-  const sugerencia = await generarSugerencia(text);
-  await createTicket(
-    { titulo: text.slice(0, 80), descripcion: text, prioridad: 2 },
+  const sugerencia = await generarSugerencia(textoEfectivo);
+  const nuevoTicket = await createTicket(
+    { titulo: textoEfectivo.slice(0, 80), descripcion: textoEfectivo, prioridad: 2 },
     usuarioExistente.id,
     sugerencia,
   );
+
+  if (mediaMessage && message) {
+    await adjuntarMediaWuzapi(nuevoTicket.id, usuarioExistente.id, message);
+  }
 
   return NextResponse.json({ ok: true });
 }

@@ -65,6 +65,7 @@ export interface Ticket {
   comentarios?: Comentario[];
   historiales?: Historial[];
   adjuntos?: Adjunto[];
+  mensajesChat?: MensajeChat[];
 }
 
 export interface Comentario {
@@ -74,6 +75,15 @@ export interface Comentario {
   usuario?: Usuario;
   contenido: string;
   interno: boolean;
+  fechaCreacion: string;
+}
+
+export interface MensajeChat {
+  id: string;
+  ticketId: string;
+  usuarioId: string;
+  usuario?: Usuario;
+  contenido: string;
   fechaCreacion: string;
 }
 

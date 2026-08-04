@@ -94,7 +94,7 @@ export async function notificarEncuestaRecibida(numero: string) {
   sendWhatsappDeferred(numero, '¡Gracias por tu respuesta! La tenemos en cuenta para seguir mejorando. 🙌');
 }
 
-export async function notificarNuevoComentario(
+export async function notificarNuevoMensajeChat(
   numero: string,
   ticketNumero: string,
   autorNombre: string,

@@ -1,11 +1,11 @@
 import { and, count, eq, isNull, ne } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { tickets, comentarios, historial, usuarios, adjuntos } from '@/lib/db/schema';
+import { tickets, comentarios, historial, usuarios, adjuntos, mensajesChat } from '@/lib/db/schema';
 import {
   notificarTicketCreado,
   notificarTicketAsignado,
   notificarTicketCerrado,
-  notificarNuevoComentario,
+  notificarNuevoMensajeChat,
 } from '@/lib/notifications/whatsapp';
 
 const ESTADO_LABELS: Record<number, string> = {
@@ -89,6 +89,10 @@ export async function findTicketById(id: string) {
       historiales: {
         with: { usuario: true },
         orderBy: (h, { asc }) => [asc(h.fechaCreacion)],
+      },
+      mensajesChat: {
+        with: { usuario: true },
+        orderBy: (m, { asc }) => [asc(m.fechaCreacion)],
       },
     },
   });
@@ -256,25 +260,40 @@ export async function eliminarAdjunto(adjuntoId: string) {
   return adjunto;
 }
 
+// Comentarios = notas internas del equipo. Nunca se envían por WhatsApp —
+// para hablar con el cliente está el chat (agregarMensajeChat).
 export async function agregarComentario(ticketId: string, usuarioId: string, contenido: string) {
+  const [comentario] = await db
+    .insert(comentarios)
+    .values({ ticketId, usuarioId, contenido, interno: true })
+    .returning();
+
+  await registrarHistorial(ticketId, usuarioId, 'COMENTARIO', 'Nota interna agregada');
+
+  return comentario;
+}
+
+// Conversación directa con el cliente. Cuando el mensaje lo escribe un
+// técnico/admin (usuarioId distinto al dueño del ticket) se envía por
+// WhatsApp; cuando lo trae el propio cliente (por WhatsApp, vía el webhook)
+// no hay que reenviarle su propio mensaje.
+export async function agregarMensajeChat(ticketId: string, usuarioId: string, contenido: string) {
   const ticket = await findTicketById(ticketId);
   if (!ticket) return null;
 
-  const [comentario] = await db
-    .insert(comentarios)
+  const [mensaje] = await db
+    .insert(mensajesChat)
     .values({ ticketId, usuarioId, contenido })
     .returning();
 
-  await registrarHistorial(ticketId, usuarioId, 'COMENTARIO', 'Comentario agregado');
+  await registrarHistorial(ticketId, usuarioId, 'CHAT', 'Mensaje de chat agregado');
 
-  // Only notify the requester when someone else (a técnico/admin) replies —
-  // not when they're the one who just wrote the comment (e.g. via WhatsApp).
   if (usuarioId !== ticket.usuarioId && ticket.usuario?.numeroWhatsApp) {
     const autor = await db.query.usuarios.findFirst({ where: eq(usuarios.id, usuarioId) });
     if (autor) {
-      await notificarNuevoComentario(ticket.usuario.numeroWhatsApp, ticket.numero, autor.nombre, contenido);
+      await notificarNuevoMensajeChat(ticket.usuario.numeroWhatsApp, ticket.numero, autor.nombre, contenido);
     }
   }
 
-  return comentario;
+  return mensaje;
 }
