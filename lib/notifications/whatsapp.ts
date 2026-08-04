@@ -1,4 +1,7 @@
 import { after } from 'next/server';
+import { eq } from 'drizzle-orm';
+import { db } from '@/lib/db';
+import { usuarios } from '@/lib/db/schema';
 
 async function sendWhatsapp(numero: string, body: string) {
   const url = process.env.WUZAPI_URL;
@@ -51,11 +54,40 @@ function saludo(): string {
   return 'Buenas noches';
 }
 
+// No repetimos el saludo si le acabamos de escribir hace poco — en un ida y
+// vuelta seguido (ej. le preguntamos algo y contesta al toque) sonaría
+// robótico abrir cada mensaje con "Buenas tardes".
+const SALUDO_INTERVALO_MS = 10 * 60 * 1000;
+
+async function conSaludoSiCorresponde(numero: string, cuerpo: string): Promise<string> {
+  try {
+    const usuario = await db.query.usuarios.findFirst({ where: eq(usuarios.numeroWhatsApp, numero) });
+    const reciente =
+      usuario?.ultimoMensajeWhatsApp &&
+      Date.now() - new Date(usuario.ultimoMensajeWhatsApp).getTime() < SALUDO_INTERVALO_MS;
+
+    if (usuario) {
+      await db.update(usuarios).set({ ultimoMensajeWhatsApp: new Date() }).where(eq(usuarios.id, usuario.id));
+    }
+
+    return reciente ? cuerpo : `${saludo()}. ${cuerpo}`;
+  } catch (err) {
+    console.error('Error chequeando el último contacto por WhatsApp:', err);
+    // Fail open: preferimos saludar de más a que el mensaje salga raro.
+    return `${saludo()}. ${cuerpo}`;
+  }
+}
+
+function sendWhatsappConSaludoDeferred(numero: string, cuerpo: string) {
+  after(async () => {
+    const body = await conSaludoSiCorresponde(numero, cuerpo);
+    await sendWhatsapp(numero, body);
+  });
+}
+
 export async function notificarBienvenida(numero: string, nombre?: string) {
-  sendWhatsappDeferred(
-    numero,
-    `${saludo()}${nombre ? ` *${nombre}*` : ''}. Bienvenido/a al sistema de soporte técnico. Contanos brevemente cuál es el problema o qué necesitás, y te creamos un ticket enseguida.`,
-  );
+  const cuerpo = `Bienvenido/a al sistema de soporte técnico${nombre ? ` *${nombre}*` : ''}. Contanos brevemente cuál es el problema o qué necesitás, y te creamos un ticket enseguida.`;
+  sendWhatsappConSaludoDeferred(numero, cuerpo);
 }
 
 export async function notificarTicketCreado(
@@ -65,19 +97,16 @@ export async function notificarTicketCreado(
   link: string,
   sugerencia?: string | null,
 ) {
-  let body = `${saludo()}. Gracias por contactarnos *${nombre}*. Creamos tu ticket ${ticketNumero}. Te contactaremos pronto.`;
+  let cuerpo = `Gracias por contactarnos *${nombre}*. Creamos tu ticket ${ticketNumero}. Te contactaremos pronto.`;
   if (sugerencia) {
-    body += `\n\nMientras tanto, esto te puede ayudar: ${sugerencia}\n\n(De todas formas, un técnico va a revisar tu caso)`;
+    cuerpo += `\n\nMientras tanto, esto te puede ayudar: ${sugerencia}\n\n(De todas formas, un técnico va a revisar tu caso)`;
   }
-  body += `\n\nPodés seguir el estado de tu ticket acá: ${link}`;
-  sendWhatsappDeferred(numero, body);
+  cuerpo += `\n\nPodés seguir el estado de tu ticket acá: ${link}`;
+  sendWhatsappConSaludoDeferred(numero, cuerpo);
 }
 
 export async function notificarTicketAsignado(numero: string, ticketNumero: string, tecnicoNombre: string) {
-  sendWhatsappDeferred(
-    numero,
-    `${saludo()}. Tu ticket ${ticketNumero} fue asignado a ${tecnicoNombre} y está en revisión.`,
-  );
+  sendWhatsappConSaludoDeferred(numero, `Tu ticket ${ticketNumero} fue asignado a ${tecnicoNombre} y está en revisión.`);
 }
 
 // Único aviso de cambio de estado que mandamos por WhatsApp — "En Progreso" /
@@ -97,17 +126,15 @@ export async function notificarEncuestaRecibida(numero: string) {
 // El problema reportado no traía suficiente detalle para armar un ticket
 // útil — le repreguntamos al cliente antes de crearlo.
 export async function notificarPreguntaAdicional(numero: string, pregunta: string) {
-  sendWhatsappDeferred(numero, `${saludo()}. ${pregunta}`);
+  sendWhatsappConSaludoDeferred(numero, pregunta);
 }
 
 // El cliente ya tiene un ticket abierto y este mensaje no suena a que sea
 // sobre lo mismo — le preguntamos si seguir sumándolo a ese ticket o si es
 // un problema nuevo, antes de decidir por nuestra cuenta.
 export async function notificarConfirmarContexto(numero: string, ticketNumero: string, ticketTitulo: string) {
-  sendWhatsappDeferred(
-    numero,
-    `${saludo()}. Todavía tenés abierto el ticket ${ticketNumero} (${ticketTitulo}). ¿Este mensaje es parte de ese mismo problema o es algo nuevo?\n\n1️⃣ Es lo mismo\n2️⃣ Es un problema nuevo`,
-  );
+  const cuerpo = `Todavía tenés abierto el ticket ${ticketNumero} (${ticketTitulo}). ¿Este mensaje es parte de ese mismo problema o es algo nuevo?\n\n1️⃣ Es lo mismo\n2️⃣ Es un problema nuevo`;
+  sendWhatsappConSaludoDeferred(numero, cuerpo);
 }
 
 export async function notificarNuevoMensajeChat(
@@ -116,5 +143,5 @@ export async function notificarNuevoMensajeChat(
   autorNombre: string,
   contenido: string,
 ) {
-  sendWhatsappDeferred(numero, `${saludo()}. ${autorNombre} respondió tu ticket ${ticketNumero}: ${contenido}`);
+  sendWhatsappConSaludoDeferred(numero, `${autorNombre} respondió tu ticket ${ticketNumero}: ${contenido}`);
 }

@@ -37,6 +37,9 @@ export const usuarios = pgTable('usuarios', {
   confirmacionTicketId: uuid('confirmacionTicketId'),
   confirmacionTexto: text('confirmacionTexto'),
   confirmacionFecha: timestamp('confirmacionFecha'),
+  // Último mensaje que LE mandamos por WhatsApp — para no repetir el
+  // "Buenas tardes" en cada mensaje durante un ida y vuelta seguido.
+  ultimoMensajeWhatsApp: timestamp('ultimoMensajeWhatsApp'),
 });
 
 export const categorias = pgTable('categorias', {
