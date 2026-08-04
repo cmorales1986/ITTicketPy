@@ -9,6 +9,9 @@ const createTicketSchema = z.object({
   descripcion: z.string().min(1),
   prioridad: z.number().min(1).max(4),
   categoriaId: optionalUuid,
+  // Solo técnicos/admins pueden usar esto para cargar un ticket a nombre de
+  // otro usuario (ej. alguien llamó por teléfono en vez de escribir).
+  usuarioId: optionalUuid,
 });
 
 export async function GET(request: NextRequest) {
@@ -34,6 +37,16 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ message: 'Datos inválidos' }, { status: 400 });
   }
 
-  const ticket = await createTicket(parsed.data, session.sub);
+  const { usuarioId: reportanteId, ...dto } = parsed.data;
+
+  let usuarioTicket = session.sub;
+  if (reportanteId && reportanteId !== session.sub) {
+    if (session.rol < 1) {
+      return NextResponse.json({ message: 'No autorizado para crear tickets a nombre de otro usuario' }, { status: 403 });
+    }
+    usuarioTicket = reportanteId;
+  }
+
+  const ticket = await createTicket(dto, usuarioTicket, undefined, session.sub);
   return NextResponse.json(ticket, { status: 201 });
 }

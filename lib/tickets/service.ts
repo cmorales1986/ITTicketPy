@@ -163,10 +163,16 @@ export async function guardarEncuesta(ticketId: string, calificacion: number, co
 // sugerenciaIA solo se usa para tickets originados por WhatsApp (ver
 // app/api/webhooks/wuzapi-inbound) — un ticket creado desde el panel no
 // pasa por el clasificador ni genera sugerencia.
+//
+// actorId es quién hace la acción (para el historial); por defecto es el
+// mismo usuarioId (el propio cliente crea su ticket). Un técnico/admin
+// puede crear el ticket A NOMBRE de otro usuario — en ese caso usuarioId es
+// el cliente reportante y actorId es el técnico que cargó el ticket.
 export async function createTicket(
   dto: CreateTicketInput,
   usuarioId: string,
   sugerenciaIA?: string | null,
+  actorId?: string,
 ) {
   const numero = await generateNumero();
   const usuario = await db.query.usuarios.findFirst({ where: eq(usuarios.id, usuarioId) });
@@ -179,7 +185,7 @@ export async function createTicket(
     .values({ ...dto, numero, usuarioId, empresaId: usuario?.empresaId })
     .returning();
 
-  await registrarHistorial(ticket.id, usuarioId, 'CREACION', 'Ticket creado');
+  await registrarHistorial(ticket.id, actorId ?? usuarioId, 'CREACION', 'Ticket creado');
 
   if (usuario?.numeroWhatsApp) {
     const link = `${process.env.APP_URL}/seguimiento/${ticket.id}`;

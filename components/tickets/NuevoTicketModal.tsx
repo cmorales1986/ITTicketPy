@@ -1,13 +1,13 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
 import api from '@/lib/axios';
-import { Categoria } from '@/types';
+import { Categoria, Usuario } from '@/types';
 import { X, Loader2 } from 'lucide-react';
 
 const schema = z.object({
@@ -15,6 +15,7 @@ const schema = z.object({
   descripcion: z.string().min(10, 'Mínimo 10 caracteres'),
   prioridad: z.number().min(1).max(4),
   categoriaId: z.string().optional(),
+  usuarioId: z.string().optional(),
 });
 
 type FormData = z.infer<typeof schema>;
@@ -24,20 +25,32 @@ interface Props {
   onClose: () => void;
   categorias: Categoria[];
   onCreated: () => void;
+  // Técnicos/admins pueden cargar el ticket a nombre de otro usuario (ej.
+  // alguien reportó el problema por teléfono en vez de escribir).
+  puedeElegirUsuario?: boolean;
 }
 
-export default function NuevoTicketModal({ open, onClose, categorias, onCreated }: Props) {
+export default function NuevoTicketModal({ open, onClose, categorias, onCreated, puedeElegirUsuario }: Props) {
   const [loading, setLoading] = useState(false);
+  const [usuarios, setUsuarios] = useState<Usuario[]>([]);
 
   const { register, handleSubmit, reset, formState: { errors } } = useForm<FormData>({
     resolver: zodResolver(schema),
     defaultValues: { prioridad: 2 },
   });
 
+  useEffect(() => {
+    if (open && puedeElegirUsuario) {
+      api.get('/usuarios')
+        .then((res) => setUsuarios(res.data.filter((u: Usuario) => u.activo)))
+        .catch(() => toast.error('Error al cargar usuarios'));
+    }
+  }, [open, puedeElegirUsuario]);
+
   const onSubmit = async (data: FormData) => {
     setLoading(true);
     try {
-      await api.post('/tickets', data);
+      await api.post('/tickets', { ...data, usuarioId: data.usuarioId || undefined });
       toast.success('Ticket creado correctamente');
       reset();
       onCreated();
@@ -64,6 +77,22 @@ export default function NuevoTicketModal({ open, onClose, categorias, onCreated 
 
         {/* Form */}
         <form onSubmit={handleSubmit(onSubmit)} className="p-6 space-y-4">
+
+          {puedeElegirUsuario && (
+            <div>
+              <label className="text-sm text-gray-400 mb-1 block">Reportado por</label>
+              <select
+                {...register('usuarioId')}
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-blue-500 text-sm"
+              >
+                <option value="">Vos mismo/a</option>
+                {usuarios.map((u) => (
+                  <option key={u.id} value={u.id}>{u.nombre} — {u.email}</option>
+                ))}
+              </select>
+              <p className="text-gray-600 text-xs mt-1">Elegí a otro usuario si estás cargando el ticket por él/ella (ej. reportó por teléfono)</p>
+            </div>
+          )}
 
           <div>
             <label className="text-sm text-gray-400 mb-1 block">Título *</label>

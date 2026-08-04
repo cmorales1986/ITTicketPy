@@ -218,6 +218,7 @@ export default function TicketsPage() {
         onClose={() => setModalOpen(false)}
         categorias={categorias}
         onCreated={() => { setModalOpen(false); fetchData(); }}
+        puedeElegirUsuario={(usuario?.rol ?? 0) >= 1}
       />
     </div>
   );
