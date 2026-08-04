@@ -1,17 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { requireSession } from '@/lib/auth/guard';
+import { requireTecnicoOAdmin } from '@/lib/auth/guard';
 import { agregarComentario } from '@/lib/tickets/service';
 
 const comentarioSchema = z.object({
   contenido: z.string().min(1),
 });
 
+// Son notas internas del equipo — nunca las escribe el cliente.
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const { session, error } = await requireSession();
+  const { session, error } = await requireTecnicoOAdmin();
   if (error) return error;
 
   const { id } = await params;

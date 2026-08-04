@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { eq } from 'drizzle-orm';
+import { requireSession } from '@/lib/auth/guard';
 import { db } from '@/lib/db';
 import { usuarios } from '@/lib/db/schema';
 import { hashPassword } from '@/lib/auth/password';
@@ -16,7 +17,18 @@ const registerSchema = z.object({
   empresaId: optionalUuid,
 });
 
+// Esto es lo que usa el panel de Admin para dar de alta un usuario a mano —
+// NO es el registro público (para eso está /api/auth/registro-publico).
+// Solo un admin puede elegir el rol de otra cuenta, así que esto tiene que
+// estar atrás de sesión + chequeo de rol; antes no lo estaba, y cualquiera
+// (autenticado o no) podía crearse una cuenta Admin mandando rol:2.
 export async function POST(request: NextRequest) {
+  const { session, error } = await requireSession();
+  if (error) return error;
+  if (session.rol !== 2 && session.rol !== 3) {
+    return NextResponse.json({ message: 'No autorizado' }, { status: 403 });
+  }
+
   const parsed = registerSchema.safeParse(await request.json());
   if (!parsed.success) {
     return NextResponse.json({ message: 'Datos inválidos' }, { status: 400 });
@@ -41,6 +53,7 @@ export async function POST(request: NextRequest) {
       numeroWhatsApp: dto.numeroWhatsApp,
       rol: dto.rol,
       empresaId: dto.empresaId,
+      registrado: true,
     })
     .returning();
 

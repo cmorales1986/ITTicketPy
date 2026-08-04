@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { del } from '@vercel/blob';
-import { requireSession } from '@/lib/auth/guard';
+import { requireTecnicoOAdmin } from '@/lib/auth/guard';
 import { eliminarAdjunto } from '@/lib/tickets/service';
 
 export async function DELETE(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string; adjuntoId: string }> },
 ) {
-  const { error } = await requireSession();
+  const { error } = await requireTecnicoOAdmin();
   if (error) return error;
 
   const { adjuntoId } = await params;

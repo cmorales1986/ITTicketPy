@@ -26,6 +26,11 @@ export const usuarios = pgTable('usuarios', {
   empresaId: uuid('empresaId').references(() => empresas.id),
   activo: boolean('activo').notNull().default(true),
   fechaCreacion: timestamp('fechaCreacion').notNull().defaultNow(),
+  // true una vez que el usuario (o un admin) le puso una contraseña real.
+  // Las cuentas que se auto-crean por WhatsApp/email quedan con un hash
+  // aleatorio e inusable y esto en false, hasta que la persona se registra
+  // por el portal — ahí "reclama" esa cuenta en vez de duplicarla.
+  registrado: boolean('registrado').notNull().default(false),
   // Borrador de un ticket por WhatsApp esperando más detalle del cliente
   // (le preguntamos algo como "¿qué mensaje te da?" y todavía no respondió).
   // Se descarta solo si pasó demasiado tiempo — ver BORRADOR_TTL_MS.

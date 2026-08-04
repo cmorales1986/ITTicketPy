@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { requireSession } from '@/lib/auth/guard';
+import { requireTecnicoOAdmin } from '@/lib/auth/guard';
 import { asignarTicket } from '@/lib/tickets/service';
 
 const asignarSchema = z.object({
@@ -11,7 +11,7 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const { session, error } = await requireSession();
+  const { session, error } = await requireTecnicoOAdmin();
   if (error) return error;
 
   const { id } = await params;

@@ -15,15 +15,19 @@ const createTicketSchema = z.object({
 });
 
 export async function GET(request: NextRequest) {
-  const { error } = await requireSession();
+  const { session, error } = await requireSession();
   if (error) return error;
 
   const estado = request.nextUrl.searchParams.get('estado');
   const prioridad = request.nextUrl.searchParams.get('prioridad');
 
+  // Un cliente (rol 0) solo ve sus propios tickets; técnicos/admins ven todo.
+  const soloDeUsuarioId = session.rol < 1 ? session.sub : undefined;
+
   const result = await findAllTickets(
     estado ? Number(estado) : undefined,
     prioridad ? Number(prioridad) : undefined,
+    soloDeUsuarioId,
   );
   return NextResponse.json(result);
 }

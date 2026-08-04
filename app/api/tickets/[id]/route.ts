@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { requireSession } from '@/lib/auth/guard';
+import { requireSession, requireTecnicoOAdmin } from '@/lib/auth/guard';
 import { findTicketById, updateTicket } from '@/lib/tickets/service';
 import { optionalUuid } from '@/lib/validation';
 
@@ -17,7 +17,7 @@ export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const { error } = await requireSession();
+  const { session, error } = await requireSession();
   if (error) return error;
 
   const { id } = await params;
@@ -25,14 +25,22 @@ export async function GET(
   if (!ticket) {
     return NextResponse.json({ message: 'Ticket no encontrado' }, { status: 404 });
   }
+  // Un cliente (rol 0) solo puede ver sus propios tickets, ni siquiera
+  // adivinando el id de otro — no es solo un tema de listado.
+  if (session.rol < 1 && ticket.usuarioId !== session.sub) {
+    return NextResponse.json({ message: 'Ticket no encontrado' }, { status: 404 });
+  }
   return NextResponse.json(ticket);
 }
 
+// Cambiar estado/prioridad/categoría/empresa es una acción del equipo, no
+// del cliente que reportó el ticket (la UI ya solo se lo muestra a
+// técnicos/admins — esto es que la API lo respete también).
 export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const { session, error } = await requireSession();
+  const { session, error } = await requireTecnicoOAdmin();
   if (error) return error;
 
   const { id } = await params;

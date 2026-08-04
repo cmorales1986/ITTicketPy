@@ -21,8 +21,11 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const { error } = await requireSession();
+  const { session, error } = await requireSession();
   if (error) return error;
+  if (session.rol !== 2 && session.rol !== 3) {
+    return NextResponse.json({ message: 'No autorizado' }, { status: 403 });
+  }
 
   const { id } = await params;
   const parsed = updateUsuarioSchema.safeParse(await request.json());
@@ -43,6 +46,7 @@ export async function PATCH(
   const updateValues: Partial<typeof usuarios.$inferInsert> = { ...resto };
   if (password) {
     updateValues.passwordHash = await hashPassword(password);
+    updateValues.registrado = true;
   }
 
   await db.update(usuarios).set(updateValues).where(eq(usuarios.id, id));
@@ -72,6 +76,9 @@ export async function DELETE(
 ) {
   const { session, error } = await requireSession();
   if (error) return error;
+  if (session.rol !== 2 && session.rol !== 3) {
+    return NextResponse.json({ message: 'No autorizado' }, { status: 403 });
+  }
 
   const { id } = await params;
 

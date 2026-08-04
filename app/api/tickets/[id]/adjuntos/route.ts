@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { put } from '@vercel/blob';
 import { requireSession } from '@/lib/auth/guard';
-import { agregarAdjunto } from '@/lib/tickets/service';
+import { agregarAdjunto, findTicketById } from '@/lib/tickets/service';
 
 // Mismo límite que el body de una función serverless de Vercel (~4.5MB) —
 // si algún día hace falta más, hay que pasar a subida directa desde el
@@ -29,6 +29,14 @@ export async function POST(
   if (error) return error;
 
   const { id } = await params;
+
+  // Un cliente (rol 0) solo puede adjuntar en su propio ticket.
+  if (session.rol < 1) {
+    const ticket = await findTicketById(id);
+    if (!ticket || ticket.usuarioId !== session.sub) {
+      return NextResponse.json({ message: 'Ticket no encontrado' }, { status: 404 });
+    }
+  }
 
   const formData = await request.formData();
   const file = formData.get('file');

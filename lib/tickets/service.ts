@@ -56,12 +56,15 @@ async function registrarHistorial(
   });
 }
 
-export async function findAllTickets(estado?: number, prioridad?: number) {
+// soloDeUsuarioId: un cliente (rol 0) solo debe ver sus propios tickets acá
+// — técnicos/admins pasan undefined para ver todo. Ver requireTecnicoOAdmin.
+export async function findAllTickets(estado?: number, prioridad?: number, soloDeUsuarioId?: string) {
   return db.query.tickets.findMany({
     where: (t, { and, eq: eqOp }) =>
       and(
         estado ? eqOp(t.estado, estado) : undefined,
         prioridad ? eqOp(t.prioridad, prioridad) : undefined,
+        soloDeUsuarioId ? eqOp(t.usuarioId, soloDeUsuarioId) : undefined,
       ),
     with: {
       usuario: true,
