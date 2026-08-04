@@ -30,6 +30,13 @@ function formatTamanio(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
+// Esta página se renderiza en el servidor (Vercel corre en UTC), así que
+// sin fijar el huso horario acá las fechas salen 3 horas adelantadas para
+// cualquiera que la vea desde Paraguay.
+function formatPY(fecha: Date | string): string {
+  return new Date(fecha).toLocaleString('es-PY', { timeZone: 'America/Asuncion' });
+}
+
 export default async function SeguimientoPage({
   params,
 }: {
@@ -112,12 +119,12 @@ export default async function SeguimientoPage({
             )}
             <div className="flex items-center gap-2 text-gray-400">
               <Clock className="w-4 h-4 text-gray-500 shrink-0" />
-              <span>Creado {new Date(ticket.fechaCreacion).toLocaleString('es-PY')}</span>
+              <span>Creado {formatPY(ticket.fechaCreacion)}</span>
             </div>
             {ticket.fechaResolucion && (
               <div className="flex items-center gap-2 text-gray-400">
                 <CheckCircle2 className="w-4 h-4 text-gray-500 shrink-0" />
-                <span>Resuelto {new Date(ticket.fechaResolucion).toLocaleString('es-PY')}</span>
+                <span>Resuelto {formatPY(ticket.fechaResolucion)}</span>
               </div>
             )}
           </div>
@@ -171,7 +178,7 @@ export default async function SeguimientoPage({
                     </p>
                     <p className="text-gray-500 text-xs mt-0.5">
                       {paso.fecha
-                        ? new Date(paso.fecha).toLocaleString('es-PY')
+                        ? formatPY(paso.fecha)
                         : actual
                           ? 'En curso'
                           : 'Pendiente'}
