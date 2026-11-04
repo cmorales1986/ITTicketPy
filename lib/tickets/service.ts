@@ -359,7 +359,7 @@ export async function createTicket(
     await notificarTicketCreado(usuario.numeroWhatsApp, numero, usuario.nombre, link, sugerenciaIA);
   }
 
-  // Aviso a los administradores. Si lo cargó un administrador a mano desde el
+  // Aviso de ticket nuevo. Si lo cargó a mano el dueño del número de aviso desde el
   // portal (actorId), no se le avisa a él.
   await notificarEquipoTicketNuevo(ticket, usuario?.nombre ?? 'Usuario', actorId);
 

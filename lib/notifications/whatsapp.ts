@@ -1,5 +1,5 @@
 import { after } from 'next/server';
-import { and, eq, inArray, isNotNull, ne } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { empresas, usuarios } from '@/lib/db/schema';
 
@@ -180,23 +180,32 @@ export async function notificarNuevoMensajeChat(
 
 const PRIORIDAD_AVISO: Record<number, string> = { 1: 'Baja', 2: 'Media', 3: 'Alta', 4: 'Crítica' };
 
-// Avisa por WhatsApp a los administradores activos (roles 2 y 3) que entró un
-// ticket nuevo. `excluirUsuarioId` evita avisarle a quien lo cargó a mano desde
-// el portal, que ya lo sabe.
+// Número que recibe el aviso de ticket nuevo. Se puede cambiar (o agregar más,
+// separados por coma) con AVISO_TICKET_NUEVO_NUMEROS en Vercel.
+const AVISO_NUMEROS_POR_DEFECTO = '595981392354';
+
+function numerosDeAviso(): string[] {
+  return (process.env.AVISO_TICKET_NUEVO_NUMEROS || AVISO_NUMEROS_POR_DEFECTO)
+    .split(',')
+    .map((n) => n.replace(/\D/g, ''))
+    .filter(Boolean);
+}
+
+// Avisa por WhatsApp que entró un ticket nuevo, solo a los números definidos
+// arriba. `excluirNumero` evita avisarle a quien lo cargó a mano desde el
+// portal, que ya lo sabe.
 export async function notificarEquipoTicketNuevo(
   ticket: { id: string; numero: string; titulo: string; prioridad: number; empresaId: string | null },
   solicitanteNombre: string,
   excluirUsuarioId?: string,
 ) {
   try {
-    const destinatarios = await db.query.usuarios.findMany({
-      where: and(
-        inArray(usuarios.rol, [2, 3]),
-        eq(usuarios.activo, true),
-        isNotNull(usuarios.numeroWhatsApp),
-        excluirUsuarioId ? ne(usuarios.id, excluirUsuarioId) : undefined,
-      ),
-    });
+    let destinatarios = numerosDeAviso();
+    if (excluirUsuarioId) {
+      const actor = await db.query.usuarios.findFirst({ where: eq(usuarios.id, excluirUsuarioId) });
+      const numeroActor = actor?.numeroWhatsApp?.replace(/\D/g, '');
+      destinatarios = destinatarios.filter((n) => n !== numeroActor);
+    }
     if (destinatarios.length === 0) return;
 
     const empresa = ticket.empresaId
@@ -209,10 +218,8 @@ export async function notificarEquipoTicketNuevo(
       `Prioridad: ${PRIORIDAD_AVISO[ticket.prioridad] ?? 'Media'}\n\n` +
       `${process.env.APP_URL}/tickets/${ticket.id}`;
 
-    for (const d of destinatarios) {
-      if (d.numeroWhatsApp) sendWhatsappDeferred(d.numeroWhatsApp, cuerpo);
-    }
+    for (const numero of destinatarios) sendWhatsappDeferred(numero, cuerpo);
   } catch (err) {
-    console.error('Error avisando al equipo del ticket nuevo:', err);
+    console.error('Error avisando del ticket nuevo:', err);
   }
 }
