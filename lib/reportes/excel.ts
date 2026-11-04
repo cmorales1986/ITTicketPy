@@ -48,6 +48,8 @@ const TIPOS: Record<number, string> = {
 };
 const CANALES: Record<string, string> = {
   WHATSAPP: 'WhatsApp',
+  WHATSAPP_PERSONAL: 'WhatsApp personal',
+  WHATSAPP_TECNICO: 'WhatsApp técnico',
   CORREO: 'Correo electrónico',
   LLAMADA: 'Llamada',
   PORTAL: 'Portal',

@@ -16,7 +16,7 @@ const createTicketSchema = z.object({
   // PR-INF-03: canal de ingreso. El equipo carga a mano los tickets de correo
   // o llamada; los de WhatsApp los crea el bot. Un cliente (rol 0) no elige:
   // su ticket queda como PORTAL.
-  canal: z.enum([CANAL.CORREO, CANAL.LLAMADA]).optional(),
+  canal: z.enum([CANAL.CORREO, CANAL.LLAMADA, CANAL.WHATSAPP_PERSONAL, CANAL.WHATSAPP_TECNICO]).optional(),
   tipo: z.number().int().min(1).max(5).default(1),
   // Sistema o servicio afectado: lista cerrada (o "Otro: detalle").
   sistemaModulo: z.string().min(1).max(255).refine(sistemaAfectadoValido, 'Sistema o servicio inválido'),
@@ -69,7 +69,7 @@ export async function POST(request: NextRequest) {
   if (session.rol >= 1) {
     if (!canalElegido) {
       return NextResponse.json(
-        { message: 'Indicá el canal de ingreso (correo o llamada)' },
+        { message: 'Indicá el canal de ingreso' },
         { status: 400 },
       );
     }

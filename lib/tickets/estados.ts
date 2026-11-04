@@ -119,12 +119,16 @@ export function esDesarrolloOMejora(tipo: number): boolean {
 }
 
 // Canales por los que el equipo registra la conformidad del usuario.
-export const CANALES_CONFORMIDAD = ['WHATSAPP', 'CORREO', 'LLAMADA'] as const;
+export const CANALES_CONFORMIDAD = ['WHATSAPP', 'WHATSAPP_PERSONAL', 'WHATSAPP_TECNICO', 'CORREO', 'LLAMADA'] as const;
 
 export const CANAL = {
   WHATSAPP: 'WHATSAPP',
   CORREO: 'CORREO',
   LLAMADA: 'LLAMADA',
+  // Cargados a mano: el usuario escribió al WhatsApp personal del Gerente de TI
+  // o al WhatsApp técnico (no al bot, que es el canal WHATSAPP).
+  WHATSAPP_PERSONAL: 'WHATSAPP_PERSONAL',
+  WHATSAPP_TECNICO: 'WHATSAPP_TECNICO',
   // Un cliente que carga su propio ticket desde el portal. No es uno de los
   // canales del procedimiento: se registra aparte para no mentir el canal.
   PORTAL: 'PORTAL',
@@ -134,13 +138,15 @@ export type Canal = (typeof CANAL)[keyof typeof CANAL];
 
 export const CANAL_LABELS: Record<string, string> = {
   WHATSAPP: 'WhatsApp',
+  WHATSAPP_PERSONAL: 'WhatsApp personal',
+  WHATSAPP_TECNICO: 'WhatsApp técnico',
   CORREO: 'Correo electrónico',
   LLAMADA: 'Llamada',
   PORTAL: 'Portal (cargado por el usuario)',
 };
 
 // Canales que se cargan a mano en el portal (el de WhatsApp lo carga el bot).
-export const CANALES_MANUALES: Canal[] = [CANAL.CORREO, CANAL.LLAMADA];
+export const CANALES_MANUALES: Canal[] = [CANAL.CORREO, CANAL.LLAMADA, CANAL.WHATSAPP_PERSONAL, CANAL.WHATSAPP_TECNICO];
 
 // Urgencia percibida por el usuario que reporta (misma escala que prioridad,
 // pero es lo que el usuario siente, no lo que el Gerente de TI decide).

@@ -25,7 +25,7 @@ const schema = z.object({
   categoriaId: z.string().optional(),
   usuarioId: z.string().optional(),
   // PR-INF-03
-  canal: z.enum(['CORREO', 'LLAMADA']).optional(),
+  canal: z.enum(['CORREO', 'LLAMADA', 'WHATSAPP_PERSONAL', 'WHATSAPP_TECNICO']).optional(),
   tipo: z.number().min(1).max(5),
   sistemaModulo: z.string().min(1, 'Elegí el sistema o servicio afectado'),
   sistemaOtro: z.string().optional(),
@@ -278,8 +278,10 @@ export default function NuevoTicketModal({ open, onClose, categorias, onCreated,
               >
                 <option value="CORREO">Correo electrónico</option>
                 <option value="LLAMADA">Llamada</option>
+                <option value="WHATSAPP_PERSONAL">WhatsApp personal</option>
+                <option value="WHATSAPP_TECNICO">WhatsApp técnico</option>
               </select>
-              <p className="text-gray-600 text-xs mt-1">Los reportes por WhatsApp los crea el bot automáticamente</p>
+              <p className="text-gray-600 text-xs mt-1">Los mensajes al número del bot los crea el bot automáticamente</p>
             </div>
           )}
 
