@@ -1,4 +1,4 @@
-import { and, count, eq, gte, isNull, lte, notInArray } from 'drizzle-orm';
+import { and, count, eq, gte, isNull, lt, lte, notInArray, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { tickets, comentarios, historial, usuarios, adjuntos, mensajesChat, aprobaciones } from '@/lib/db/schema';
 import {
@@ -823,6 +823,25 @@ export async function cerrarResueltosSinRespuesta(ahora = new Date()) {
     cerrados.push(t.numero);
   }
   return { revisados: resueltos.length, cerrados };
+}
+
+// Tickets recibidos en un período (rango de días, hora de Paraguay), ya con su
+// medición de plazos. La recepción es la del reporte (o la creación del ticket
+// si no hay otra). Base de los reportes de auditoría.
+export async function findTicketsRecibidosEnPeriodo(desdeDia: string, hastaDia: string) {
+  const { desde, hasta } = limitesDeRango(desdeDia, hastaDia);
+  // Fechas como texto ISO (UTC): las columnas son timestamp sin zona y se
+  // guardan en UTC.
+  const recepcion = sql`coalesce(${tickets.fechaRecepcion}, ${tickets.fechaCreacion})`;
+  const [lista, cfg] = await Promise.all([
+    db.query.tickets.findMany({
+      where: and(gte(recepcion, desde.toISOString()), lt(recepcion, hasta.toISOString())),
+      orderBy: (t, { asc }) => [asc(t.fechaCreacion)],
+    }),
+    obtenerConfigPlazos(),
+  ]);
+  const ahora = new Date();
+  return lista.map((t) => conSla(t, cfg, ahora));
 }
 
 // Conformidad del usuario con la solución, registrada por el equipo (por
