@@ -1,4 +1,16 @@
 import Anthropic from '@anthropic-ai/sdk';
+import {
+  detectarSistema,
+  detectarUrgencia,
+  normalizarSistema,
+  normalizarUrgencia,
+  preguntaDatosFaltantes,
+} from '@/lib/ai/datos-minimos';
+
+// Datos que el reporte debe traer además de la descripción (PR-INF-03).
+const INSTRUCCIONES_DATOS = `Además extraé estos dos datos del mensaje, SOLO si el cliente los dijo con claridad (si no los dijo, poné null — no los deduzcas):
+- "sistema": el sistema o servicio afectado, uno de exactamente estos valores: "SAP", "Pygs System", "Agriness", "Correo electrónico", "Red e internet", "Equipos", "Servidores y back up", o "Otro: <cuál>" si es algo que no está en la lista.
+- "urgencia": qué tan urgente es para el cliente, un número: 1 (baja), 2 (media), 3 (alta) o 4 (crítica, por ejemplo no puede trabajar). Solo si el cliente expresó la urgencia con palabras.`;
 
 const SYSTEM_PROMPT = `Sos un asistente de soporte técnico de ITTicketPy que arma tickets a partir de mensajes de WhatsApp de clientes.
 
@@ -20,25 +32,32 @@ Ejemplos con solicitudes (no son errores, no les preguntes por síntomas):
 
 Respondé ÚNICAMENTE con un JSON válido, sin texto adicional ni bloques de código, en uno de estos dos formatos exactos:
 
+${INSTRUCCIONES_DATOS}
+
 Si falta información:
-{"completo": false, "pregunta": "<una pregunta breve, cálida y concreta en español para pedir el detalle que falta, tuteando al cliente>"}
+{"completo": false, "pregunta": "<una pregunta breve, cálida y concreta en español para pedir el detalle que falta, tuteando al cliente>", "sistema": <valor o null>, "urgencia": <número o null>}
 
 Si hay información suficiente:
-{"completo": true, "titulo": "<resumen del pedido en máximo 80 caracteres, en español, sin punto final>", "descripcion": "<descripción clara y completa del pedido en español, redactada en base a todo lo que contó el cliente, en tercera persona o neutra>"}`;
+{"completo": true, "titulo": "<resumen del pedido en máximo 80 caracteres, en español, sin punto final>", "descripcion": "<descripción clara y completa del pedido en español, redactada en base a todo lo que contó el cliente, en tercera persona o neutra>", "sistema": <valor o null>, "urgencia": <número o null>}`;
 
 // Prompt para cuando ya le pedimos más detalle una vez: no hay que volver a
 // preguntar (evita que el cliente sienta que "da vueltas"), armamos el
 // ticket sí o sí con lo que haya, por vago que siga sonando.
 const SYSTEM_PROMPT_RESUMEN = `Sos un asistente de soporte técnico de ITTicketPy. Te llega el historial de mensajes de un cliente sobre un pedido (puede ser un problema técnico o una solicitud de automatización/desarrollo/acceso/cambio) — ya se le pidió más detalle una vez, así que ahora hay que armar el ticket sí o sí con la información disponible, sin volver a preguntar nada.
 
+${INSTRUCCIONES_DATOS}
+
 Respondé ÚNICAMENTE con un JSON válido, sin texto adicional ni bloques de código, en este formato exacto:
-{"titulo": "<resumen del pedido en máximo 80 caracteres, en español, sin punto final>", "descripcion": "<descripción clara del pedido en español, redactada en base a todo lo que contó el cliente>"}`;
+{"titulo": "<resumen del pedido en máximo 80 caracteres, en español, sin punto final>", "descripcion": "<descripción clara del pedido en español, redactada en base a todo lo que contó el cliente>", "sistema": <valor o null>, "urgencia": <número o null>}`;
 
 export interface AnalisisTicket {
   completo: boolean;
   titulo?: string;
   descripcion?: string;
   pregunta?: string;
+  // Datos mínimos (PR-INF-03): null si el cliente no los dijo.
+  sistema?: string | null;
+  urgencia?: number | null;
 }
 
 function limpiarJson(texto: string): string {
@@ -53,14 +72,22 @@ function limpiarJson(texto: string): string {
 // forzarCompleto: para cuando ya le repreguntamos una vez — no dejamos que
 // pida una segunda vuelta de detalle, se arma el ticket con lo que haya.
 export async function analizarTicket(texto: string, forzarCompleto = false): Promise<AnalisisTicket> {
-  const fallback: AnalisisTicket = { completo: true, titulo: texto.slice(0, 80), descripcion: texto };
+  // Sin IA (o si falla) se crea el ticket tal cual, completando sistema y
+  // urgencia con palabras clave cuando se pueden reconocer; no se pregunta.
+  const fallback: AnalisisTicket = {
+    completo: true,
+    titulo: texto.slice(0, 80),
+    descripcion: texto,
+    sistema: detectarSistema(texto),
+    urgencia: detectarUrgencia(texto),
+  };
   if (!process.env.ANTHROPIC_API_KEY) return fallback;
 
   try {
     const client = new Anthropic();
     const response = await client.messages.create({
       model: 'claude-haiku-4-5',
-      max_tokens: 300,
+      max_tokens: 400,
       system: forzarCompleto ? SYSTEM_PROMPT_RESUMEN : SYSTEM_PROMPT,
       messages: [{ role: 'user', content: texto.slice(0, 3000) }],
     });
@@ -69,20 +96,34 @@ export async function analizarTicket(texto: string, forzarCompleto = false): Pro
     const respuesta = bloque?.type === 'text' ? bloque.text.trim() : '';
     const json = JSON.parse(limpiarJson(respuesta));
 
+    // Lo que dijo la IA; si no lo encontró, palabras clave sobre el texto.
+    const sistema = normalizarSistema(json.sistema) ?? detectarSistema(texto);
+    const urgencia = normalizarUrgencia(json.urgencia) ?? detectarUrgencia(texto);
+
     if (forzarCompleto) {
+      // Ya preguntamos una vez: se arma el ticket con lo que haya. Lo que siga
+      // sin saberse queda sin indicar (no se inventa).
       const titulo = typeof json.titulo === 'string' ? json.titulo.trim().slice(0, 80) : '';
       const descripcion = typeof json.descripcion === 'string' ? json.descripcion.trim() : '';
-      if (titulo && descripcion) return { completo: true, titulo, descripcion };
+      if (titulo && descripcion) return { completo: true, titulo, descripcion, sistema, urgencia };
       return fallback;
     }
 
+    // Una sola pregunta por vuelta: el detalle que falte (si falta) junto con
+    // el sistema y la urgencia que no se hayan dicho.
+    const datosFaltantes = preguntaDatosFaltantes(!sistema, !urgencia);
+
     if (json.completo === false && typeof json.pregunta === 'string' && json.pregunta.trim()) {
-      return { completo: false, pregunta: json.pregunta.trim() };
+      const pregunta = datosFaltantes ? `${json.pregunta.trim()}\n\n${datosFaltantes}` : json.pregunta.trim();
+      return { completo: false, pregunta };
     }
     if (json.completo === true && typeof json.titulo === 'string' && typeof json.descripcion === 'string') {
       const titulo = json.titulo.trim().slice(0, 80);
       const descripcion = json.descripcion.trim();
-      if (titulo && descripcion) return { completo: true, titulo, descripcion };
+      if (titulo && descripcion) {
+        if (datosFaltantes) return { completo: false, pregunta: datosFaltantes };
+        return { completo: true, titulo, descripcion, sistema, urgencia };
+      }
     }
     return fallback;
   } catch (err) {

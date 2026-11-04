@@ -5,6 +5,7 @@ import {
   notificarTicketCreado,
   notificarTicketAsignado,
   notificarTicketCerrado,
+  notificarTicketResuelto,
   notificarNuevoMensajeChat,
 } from '@/lib/notifications/whatsapp';
 import {
@@ -627,8 +628,19 @@ export async function updateTicket(id: string, dto: UpdateTicketInput, usuarioId
 
   const actualizado = await findTicketById(id);
 
-  // Por WhatsApp solo avisamos crear / asignar / cerrar — "En Progreso" y
-  // "Resuelto" en el medio no notifican, para no saturar al cliente.
+  // Por WhatsApp se avisa crear / asignar / resolver / cerrar. "En Proceso" no
+  // notifica, para no saturar al cliente. Al resolver, el bot le informa la
+  // solución por el mismo canal por el que reportó y le pide conformidad
+  // (PR-INF-03); los tickets de correo o llamada se confirman a mano.
+  if (
+    dto.estado === ESTADO.RESUELTO &&
+    cambiaEstado &&
+    actualizado?.canal === 'WHATSAPP' &&
+    actualizado.usuario?.numeroWhatsApp &&
+    actualizado.solucion
+  ) {
+    await notificarTicketResuelto(actualizado.usuario.numeroWhatsApp, actualizado.numero, actualizado.solucion);
+  }
   if (dto.estado === 4 && dto.estado !== ticket.estado && actualizado?.usuario?.numeroWhatsApp) {
     await notificarTicketCerrado(actualizado.usuario.numeroWhatsApp, actualizado.numero);
   }

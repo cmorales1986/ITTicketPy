@@ -9,6 +9,9 @@ import {
   guardarEncuesta,
   agregarMensajeChat,
   agregarAdjunto,
+  registrarConformidad,
+  updateTicket,
+  TicketReglaError,
 } from '@/lib/tickets/service';
 import {
   findOrCreateUsuarioByWhatsapp,
@@ -24,11 +27,15 @@ import { esSolicitudDeSoporte } from '@/lib/ai/clasificar-mensaje';
 import { generarSugerencia } from '@/lib/ai/sugerir-solucion';
 import { analizarTicket } from '@/lib/ai/analizar-ticket';
 import { esMismoProblema } from '@/lib/ai/es-mismo-problema';
+import { interpretarConformidad } from '@/lib/ai/conformidad-whatsapp';
+import { ESTADO } from '@/lib/tickets/estados';
 import {
   notificarBienvenida,
   notificarEncuestaRecibida,
   notificarPreguntaAdicional,
   notificarConfirmarContexto,
+  notificarObjecionRecibida,
+  notificarConformidadRegistrada,
 } from '@/lib/notifications/whatsapp';
 
 export const runtime = 'nodejs';
@@ -207,7 +214,15 @@ async function intentarCrearTicket(
   await limpiarBorrador(usuarioId);
   const sugerencia = await generarSugerencia(texto);
   const nuevoTicket = await createTicket(
-    { titulo: analisis.titulo!, descripcion: analisis.descripcion!, prioridad: 2, canal: 'WHATSAPP' },
+    {
+      titulo: analisis.titulo!,
+      descripcion: analisis.descripcion!,
+      prioridad: 2,
+      canal: 'WHATSAPP',
+      // Datos mínimos del reporte (PR-INF-03): sin indicar si el cliente no los dijo.
+      sistemaModulo: analisis.sistema ?? undefined,
+      urgencia: analisis.urgencia ?? undefined,
+    },
     usuarioId,
     sugerencia,
   );
@@ -312,6 +327,48 @@ export async function POST(request: NextRequest) {
     // vueltas — el ticket se arma sí o sí con lo que haya en esta segunda vuelta.
     await intentarCrearTicket(usuarioExistente.id, phone, `${borradorPrevio}\n${textoEfectivo}`, mediaMessage, message, true);
     return NextResponse.json({ ok: true });
+  }
+
+  // Si su ticket está Resuelto y le pedimos conformidad, un "1" / "sí" / "2" /
+  // "sigue igual" es la respuesta a esa pregunta (PR-INF-03). Solo se actúa
+  // ante respuestas claras: cualquier otro mensaje sigue el camino normal
+  // (puede ser un problema nuevo).
+  const aConfirmar = await findOpenTicketForUsuario(usuarioExistente.id);
+  if (
+    aConfirmar &&
+    aConfirmar.estado === ESTADO.RESUELTO &&
+    aConfirmar.canal === 'WHATSAPP' &&
+    !aConfirmar.conformidadFecha &&
+    textoEfectivo
+  ) {
+    const respuesta = interpretarConformidad(textoEfectivo);
+
+    if (respuesta === 'conforme') {
+      await registrarConformidad(aConfirmar.id, usuarioExistente.id, 'WHATSAPP', `Respondió por WhatsApp: "${textoEfectivo}"`);
+      try {
+        // Cerrar dispara el aviso de cierre con la encuesta.
+        await updateTicket(aConfirmar.id, { estado: ESTADO.CERRADO }, usuarioExistente.id);
+      } catch (err) {
+        // Una regla impide cerrarlo solo (ej. un Crítico fuera de plazo pide
+        // motivo del desvío): queda con la conformidad registrada y lo cierra
+        // el equipo.
+        if (!(err instanceof TicketReglaError)) throw err;
+        await notificarConformidadRegistrada(phone, aConfirmar.numero);
+      }
+      return NextResponse.json({ ok: true });
+    }
+
+    if (respuesta === 'objeta') {
+      // Vuelve a En Proceso guardando lo que dijo (queda en el historial y en
+      // el chat del ticket).
+      await updateTicket(aConfirmar.id, { estado: ESTADO.EN_PROCESO, motivoReapertura: textoEfectivo }, usuarioExistente.id);
+      await agregarMensajeChat(aConfirmar.id, usuarioExistente.id, textoEfectivo);
+      if (mediaMessage && message) {
+        await adjuntarMediaWuzapi(aConfirmar.id, usuarioExistente.id, message);
+      }
+      await notificarObjecionRecibida(phone, aConfirmar.numero);
+      return NextResponse.json({ ok: true });
+    }
   }
 
   // Si ya tiene un ticket abierto, chequeamos que el mensaje siga siendo

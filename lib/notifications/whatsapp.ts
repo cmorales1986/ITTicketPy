@@ -119,6 +119,31 @@ export async function notificarTicketCerrado(numero: string, ticketNumero: strin
   );
 }
 
+// Al pasar a Resuelto el bot le informa la solución al usuario, por el mismo
+// canal por el que reportó, y le pide conformidad (PR-INF-03). Su respuesta
+// (1 o 2) la interpreta el webhook.
+export async function notificarTicketResuelto(numero: string, ticketNumero: string, solucion: string) {
+  const cuerpo = `Tu ticket ${ticketNumero} fue resuelto.\n\nSolución aplicada: ${solucion}\n\n¿Estás conforme con la solución?\n\n1️⃣ Sí, quedó resuelto\n2️⃣ No, sigue el problema (contanos qué pasa)`;
+  sendWhatsappConSaludoDeferred(numero, cuerpo);
+}
+
+// El usuario objetó la solución: el ticket vuelve a En Proceso.
+export async function notificarObjecionRecibida(numero: string, ticketNumero: string) {
+  sendWhatsappDeferred(
+    numero,
+    `Gracias por avisarnos. Reabrimos tu ticket ${ticketNumero} y el equipo lo vuelve a revisar con lo que nos contaste.`,
+  );
+}
+
+// El usuario dio su conformidad pero el ticket no se pudo cerrar solo (por
+// ejemplo, falta completar algo en el equipo): se le agradece igual.
+export async function notificarConformidadRegistrada(numero: string, ticketNumero: string) {
+  sendWhatsappDeferred(
+    numero,
+    `¡Gracias! Registramos tu conformidad con el ticket ${ticketNumero}. El equipo lo da por cerrado en breve.`,
+  );
+}
+
 export async function notificarEncuestaRecibida(numero: string) {
   sendWhatsappDeferred(numero, '¡Gracias por tu respuesta! La tenemos en cuenta para seguir mejorando. 🙌');
 }
