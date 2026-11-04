@@ -37,6 +37,15 @@ function mesAnterior(): [string, string] {
   ];
 }
 
+// Lunes a domingo de la semana anterior: es el rango de la exportación semanal.
+function semanaAnterior(): [string, string] {
+  const ahora = new Date();
+  const diasDesdeLunes = (ahora.getDay() + 6) % 7;
+  const lunes = new Date(ahora.getFullYear(), ahora.getMonth(), ahora.getDate() - diasDesdeLunes - 7);
+  const domingo = new Date(lunes.getFullYear(), lunes.getMonth(), lunes.getDate() + 6);
+  return [aIso(lunes), aIso(domingo)];
+}
+
 export default function ReportesPage() {
   const router = useRouter();
   const { usuario } = useAuthStore();
@@ -132,7 +141,7 @@ export default function ReportesPage() {
       const res = await api.get('/reportes/exportar', { params: { desde, hasta }, responseType: 'blob' });
       const nombre =
         /filename="([^"]+)"/.exec(String(res.headers['content-disposition'] ?? ''))?.[1] ??
-        `FL-INF-01_${desde}_${hasta}.xlsx`;
+        `FL-INF-01_${desde}_a_${hasta}.xlsx`;
       const url = URL.createObjectURL(res.data);
       const a = document.createElement('a');
       a.href = url;
@@ -157,6 +166,16 @@ export default function ReportesPage() {
           <p className="text-gray-400 mt-1">Para auditoría — actividad de tickets en un rango de fechas</p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <button
+            onClick={() => {
+              const [d, h] = semanaAnterior();
+              setDesde(d);
+              setHasta(h);
+            }}
+            className="flex items-center gap-2 bg-gray-800 hover:bg-gray-700 text-white px-4 py-2.5 rounded-lg transition text-sm"
+          >
+            Semana anterior
+          </button>
           <button
             onClick={() => {
               const [d, h] = mesAnterior();

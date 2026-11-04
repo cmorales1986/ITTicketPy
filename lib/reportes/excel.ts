@@ -83,12 +83,12 @@ function conformidad(t: TicketExportable): string {
 }
 
 // FL-INF-01_2026-11.xlsx si el rango es un mes calendario completo;
-// FL-INF-01_2026-11-05_2026-11-20.xlsx en cualquier otro caso.
+// FL-INF-01_2026-11-02_a_2026-11-08.xlsx en cualquier otro caso (p. ej. una semana).
 export function nombreArchivoExportacion(desde: string, hasta: string): string {
   const [a, m] = desde.split('-').map(Number);
   const ultimoDia = new Date(Date.UTC(a, m, 0)).getUTCDate();
   const esMesCompleto = desde === `${desde.slice(0, 7)}-01` && hasta === `${desde.slice(0, 7)}-${String(ultimoDia).padStart(2, '0')}`;
-  return esMesCompleto ? `FL-INF-01_${desde.slice(0, 7)}.xlsx` : `FL-INF-01_${desde}_${hasta}.xlsx`;
+  return esMesCompleto ? `FL-INF-01_${desde.slice(0, 7)}.xlsx` : `FL-INF-01_${desde}_a_${hasta}.xlsx`;
 }
 
 export async function construirExcel(opciones: {
