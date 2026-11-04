@@ -49,7 +49,17 @@ export interface Ticket {
   titulo: string;
   descripcion: string;
   prioridad: number; // 1=Baja, 2=Media, 3=Alta, 4=Crítica
-  estado: number;   // 1=Abierto, 2=En Progreso, 3=Resuelto, 4=Cerrado
+  estado: number;   // 1=Nuevo, 2=En Proceso, 3=Resuelto, 4=Cerrado, 5=Cancelado
+  canal?: string | null; // WHATSAPP | CORREO | LLAMADA (null en históricos)
+  tipo: number; // 1=Incidente/Soporte, 2=Solicitud de desarrollo, 3=Mejora
+  sistemaModulo?: string | null;
+  urgencia?: number | null;
+  solucion?: string | null;
+  motivoCancelacion?: string | null;
+  dependeProveedor: boolean;
+  proveedorNombre?: string | null;
+  proveedorFechaCompromiso?: string | null;
+  proveedorNotas?: string | null;
   usuarioId: string;
   usuario?: Usuario;
   tecnicoAsignadoId?: string;
@@ -105,10 +115,11 @@ export const PRIORIDAD_COLORS: Record<number, string> = {
 };
 
 export const ESTADO_LABELS: Record<number, string> = {
-  1: 'Abierto',
-  2: 'En Progreso',
+  1: 'Nuevo',
+  2: 'En Proceso',
   3: 'Resuelto',
   4: 'Cerrado',
+  5: 'Cancelado',
 };
 
 export const ESTADO_COLORS: Record<number, string> = {
@@ -116,4 +127,5 @@ export const ESTADO_COLORS: Record<number, string> = {
   2: 'bg-blue-500/10 text-blue-400',
   3: 'bg-green-500/10 text-green-400',
   4: 'bg-gray-500/10 text-gray-400',
+  5: 'bg-red-500/10 text-red-400',
 };

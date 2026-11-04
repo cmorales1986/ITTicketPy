@@ -207,7 +207,7 @@ async function intentarCrearTicket(
   await limpiarBorrador(usuarioId);
   const sugerencia = await generarSugerencia(texto);
   const nuevoTicket = await createTicket(
-    { titulo: analisis.titulo!, descripcion: analisis.descripcion!, prioridad: 2 },
+    { titulo: analisis.titulo!, descripcion: analisis.descripcion!, prioridad: 2, canal: 'WHATSAPP' },
     usuarioId,
     sugerencia,
   );

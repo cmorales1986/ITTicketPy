@@ -17,6 +17,13 @@ import {
   PRIORIDAD_LABELS,
   PRIORIDAD_COLORS,
 } from "@/types";
+import {
+  ESTADO,
+  TRANSICIONES,
+  TIPO_LABELS,
+  CANAL_LABELS,
+  URGENCIA_LABELS,
+} from "@/lib/tickets/estados";
 import Timeline from "@/components/tickets/Timeline";
 import Estrellas from "@/components/tickets/Estrellas";
 import { useAuthStore } from "@/store/auth.store";
@@ -53,6 +60,7 @@ const ESTADO_BUTTON_ACTIVE: Record<number, string> = {
   2: "bg-blue-600 text-white",
   3: "bg-green-600 text-white",
   4: "bg-gray-600 text-white",
+  5: "bg-red-600 text-white",
 };
 
 export default function TicketDetallePage() {
@@ -71,6 +79,10 @@ export default function TicketDetallePage() {
   const [enviandoMensajeChat, setEnviandoMensajeChat] = useState(false);
   const [actualizando, setActualizando] = useState(false);
   const [subiendoArchivo, setSubiendoArchivo] = useState(false);
+  // Estado al que se quiere pasar y que pide un dato obligatorio antes de
+  // confirmarse (Resuelto: solución, Cancelado: motivo).
+  const [estadoPendiente, setEstadoPendiente] = useState<number | null>(null);
+  const [textoEstado, setTextoEstado] = useState("");
 
   useEffect(() => {
     fetchData();
@@ -96,14 +108,42 @@ export default function TicketDetallePage() {
     }
   };
 
-  const cambiarEstado = async (estado: number) => {
+  const cambiarEstado = async (estado: number, texto?: string) => {
     setActualizando(true);
     try {
-      await api.put(`/tickets/${id}`, { estado });
+      await api.put(`/tickets/${id}`, {
+        estado,
+        ...(estado === ESTADO.RESUELTO ? { solucion: texto } : {}),
+        ...(estado === ESTADO.CANCELADO ? { motivoCancelacion: texto } : {}),
+      });
+      setEstadoPendiente(null);
+      setTextoEstado("");
       await fetchData();
       toast.success("Estado actualizado");
-    } catch {
-      toast.error("Error al actualizar estado");
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || "Error al actualizar estado");
+    } finally {
+      setActualizando(false);
+    }
+  };
+
+  const elegirEstado = (estado: number) => {
+    if (estado === ESTADO.RESUELTO || estado === ESTADO.CANCELADO) {
+      setEstadoPendiente(estado);
+      setTextoEstado("");
+      return;
+    }
+    cambiarEstado(estado);
+  };
+
+  const cambiarClasificacion = async (campos: Record<string, unknown>) => {
+    setActualizando(true);
+    try {
+      await api.put(`/tickets/${id}`, campos);
+      await fetchData();
+      toast.success("Clasificación actualizada");
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || "Error al actualizar");
     } finally {
       setActualizando(false);
     }
@@ -249,9 +289,21 @@ export default function TicketDetallePage() {
             >
               {ESTADO_LABELS[ticket.estado]}
             </span>
+            {ticket.dependeProveedor && (
+              <span className="text-xs px-2 py-1 rounded-full font-medium bg-purple-500/10 text-purple-400">
+                Depende de proveedor
+              </span>
+            )}
             <Estrellas calificacion={ticket.calificacion} size="md" />
           </div>
           <h1 className="text-xl font-bold text-white mt-1">{ticket.titulo}</h1>
+          <p className="text-gray-500 text-xs mt-1">
+            {TIPO_LABELS[ticket.tipo] ?? "Incidente / Soporte"}
+            {" · "}
+            Canal: {ticket.canal ? CANAL_LABELS[ticket.canal] ?? ticket.canal : "Sin registrar"}
+            {ticket.sistemaModulo ? ` · Sistema/módulo: ${ticket.sistemaModulo}` : ""}
+            {ticket.urgencia ? ` · Urgencia: ${URGENCIA_LABELS[ticket.urgencia]}` : ""}
+          </p>
         </div>
       </div>
 
@@ -265,6 +317,24 @@ export default function TicketDetallePage() {
               {ticket.descripcion}
             </p>
           </div>
+
+          {ticket.solucion && (
+            <div className="bg-gray-900 border border-green-900/50 rounded-xl p-5">
+              <h3 className="text-white font-medium mb-3">Solución aplicada</h3>
+              <p className="text-gray-300 text-sm leading-relaxed whitespace-pre-wrap">
+                {ticket.solucion}
+              </p>
+            </div>
+          )}
+
+          {ticket.motivoCancelacion && (
+            <div className="bg-gray-900 border border-red-900/50 rounded-xl p-5">
+              <h3 className="text-white font-medium mb-3">Motivo de cancelación</h3>
+              <p className="text-gray-300 text-sm leading-relaxed whitespace-pre-wrap">
+                {ticket.motivoCancelacion}
+              </p>
+            </div>
+          )}
 
           {/* Adjuntos */}
           <div className="bg-gray-900 border border-gray-800 rounded-xl">
@@ -587,20 +657,173 @@ export default function TicketDetallePage() {
                   Cambiar estado
                 </h3>
                 <div className="grid grid-cols-2 gap-2">
-                  {[1, 2, 3, 4].map((estado) => (
+                  {/* Estado actual + solo las transiciones permitidas */}
+                  {[ticket.estado, ...(TRANSICIONES[ticket.estado] ?? [])].map((estado) => (
                     <button
                       key={estado}
-                      onClick={() => cambiarEstado(estado)}
+                      onClick={() => elegirEstado(estado)}
                       disabled={actualizando || ticket.estado === estado}
                       className={`text-xs py-2 px-3 rounded-lg transition font-medium disabled:opacity-40 ${
                         ticket.estado === estado
                           ? ESTADO_BUTTON_ACTIVE[estado]
-                          : "bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-white"
+                          : estadoPendiente === estado
+                            ? "bg-blue-600/30 text-white ring-1 ring-blue-500"
+                            : "bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-white"
                       }`}
                     >
-                      {ESTADO_LABELS[estado]}
+                      {ticket.estado === estado
+                        ? ESTADO_LABELS[estado]
+                        : ticket.estado === ESTADO.CERRADO && estado === ESTADO.EN_PROCESO
+                          ? "Reabrir"
+                          : ESTADO_LABELS[estado]}
                     </button>
                   ))}
+                </div>
+
+                {estadoPendiente !== null && (
+                  <div className="space-y-2 pt-1">
+                    <label className="text-xs text-gray-400 block">
+                      {estadoPendiente === ESTADO.RESUELTO
+                        ? "Solución aplicada *"
+                        : "Motivo de la cancelación *"}
+                    </label>
+                    <textarea
+                      value={textoEstado}
+                      onChange={(e) => setTextoEstado(e.target.value)}
+                      rows={3}
+                      className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 text-sm resize-none"
+                    />
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => {
+                          setEstadoPendiente(null);
+                          setTextoEstado("");
+                        }}
+                        className="flex-1 text-xs py-2 rounded-lg border border-gray-700 text-gray-400 hover:text-white"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        onClick={() => cambiarEstado(estadoPendiente, textoEstado.trim())}
+                        disabled={actualizando || !textoEstado.trim()}
+                        className="flex-1 text-xs py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium disabled:opacity-40"
+                      >
+                        Confirmar
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Derivación a proveedor */}
+              <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 space-y-3">
+                <h3 className="text-white font-medium text-sm">Proveedor externo</h3>
+                <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={ticket.dependeProveedor}
+                    disabled={actualizando}
+                    onChange={(e) => {
+                      if (e.target.checked && !ticket.proveedorNombre) {
+                        const nombre = window.prompt("¿Qué proveedor atiende este ticket?")?.trim();
+                        if (!nombre) return;
+                        cambiarClasificacion({ dependeProveedor: true, proveedorNombre: nombre });
+                        return;
+                      }
+                      cambiarClasificacion({ dependeProveedor: e.target.checked });
+                    }}
+                  />
+                  Depende de un proveedor
+                </label>
+                {ticket.dependeProveedor && (
+                  <>
+                    <div>
+                      <label className="text-gray-500 text-xs mb-1 block">Proveedor</label>
+                      <input
+                        key={`pn-${ticket.proveedorNombre ?? ""}`}
+                        defaultValue={ticket.proveedorNombre ?? ""}
+                        onBlur={(e) => {
+                          const v = e.target.value.trim();
+                          if (v && v !== (ticket.proveedorNombre ?? "")) cambiarClasificacion({ proveedorNombre: v });
+                        }}
+                        className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500 text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-gray-500 text-xs mb-1 block">Fecha compromiso</label>
+                      <input
+                        type="date"
+                        key={`pf-${ticket.proveedorFechaCompromiso ?? ""}`}
+                        defaultValue={ticket.proveedorFechaCompromiso?.slice(0, 10) ?? ""}
+                        onBlur={(e) => {
+                          if (e.target.value !== (ticket.proveedorFechaCompromiso?.slice(0, 10) ?? "")) {
+                            cambiarClasificacion({ proveedorFechaCompromiso: e.target.value });
+                          }
+                        }}
+                        className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500 text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-gray-500 text-xs mb-1 block">Hitos y entregables verificados</label>
+                      <textarea
+                        key={`pt-${ticket.proveedorNotas ?? ""}`}
+                        defaultValue={ticket.proveedorNotas ?? ""}
+                        rows={3}
+                        onBlur={(e) => {
+                          if (e.target.value !== (ticket.proveedorNotas ?? "")) {
+                            cambiarClasificacion({ proveedorNotas: e.target.value });
+                          }
+                        }}
+                        className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500 text-sm resize-none"
+                      />
+                    </div>
+                  </>
+                )}
+              </div>
+
+              {/* Clasificación (PR-INF-03) */}
+              <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 space-y-3">
+                <h3 className="text-white font-medium text-sm">Clasificación</h3>
+                <div>
+                  <label className="text-gray-500 text-xs mb-1 block">Tipo</label>
+                  <select
+                    value={ticket.tipo}
+                    onChange={(e) => cambiarClasificacion({ tipo: Number(e.target.value) })}
+                    disabled={actualizando}
+                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500 text-sm"
+                  >
+                    {Object.entries(TIPO_LABELS).map(([v, l]) => (
+                      <option key={v} value={v}>{l}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-gray-500 text-xs mb-1 block">Sistema / módulo afectado</label>
+                  <input
+                    key={ticket.sistemaModulo ?? ""}
+                    defaultValue={ticket.sistemaModulo ?? ""}
+                    onBlur={(e) => {
+                      const v = e.target.value.trim();
+                      if (v && v !== (ticket.sistemaModulo ?? "")) cambiarClasificacion({ sistemaModulo: v });
+                    }}
+                    disabled={actualizando}
+                    placeholder="Ej: SAP B1 — Compras"
+                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="text-gray-500 text-xs mb-1 block">Urgencia percibida por el usuario</label>
+                  <select
+                    value={ticket.urgencia ?? ""}
+                    onChange={(e) => e.target.value && cambiarClasificacion({ urgencia: Number(e.target.value) })}
+                    disabled={actualizando}
+                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500 text-sm"
+                  >
+                    <option value="">Sin indicar</option>
+                    {Object.entries(URGENCIA_LABELS).map(([v, l]) => (
+                      <option key={v} value={v}>{l}</option>
+                    ))}
+                  </select>
                 </div>
               </div>
 

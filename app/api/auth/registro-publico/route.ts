@@ -19,6 +19,16 @@ const registroSchema = z.object({
 // cuenta con contraseña inusable (ver lib/usuarios/find-or-create.ts); acá
 // la "reclama" en vez de duplicarla, para no perder sus tickets anteriores.
 export async function POST(request: NextRequest) {
+  // PR-INF-03: el acceso al portal está restringido a usuarios autorizados
+  // por el Gerente de TI, que los crea desde la pantalla Usuarios. Para
+  // reabrir el registro público: REGISTRO_PUBLICO=abierto en Vercel.
+  if (process.env.REGISTRO_PUBLICO !== 'abierto') {
+    return NextResponse.json(
+      { message: 'El registro está cerrado. Pedile al Gerente de TI que te cree el usuario.' },
+      { status: 403 },
+    );
+  }
+
   const parsed = registroSchema.safeParse(await request.json());
   if (!parsed.success) {
     return NextResponse.json({ message: 'Datos inválidos' }, { status: 400 });

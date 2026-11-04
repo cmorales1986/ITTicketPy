@@ -1,4 +1,4 @@
-import { and, count, eq, gte, isNull, lte, ne } from 'drizzle-orm';
+import { and, count, eq, gte, isNull, lte, notInArray } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { tickets, comentarios, historial, usuarios, adjuntos, mensajesChat } from '@/lib/db/schema';
 import {
@@ -7,13 +7,19 @@ import {
   notificarTicketCerrado,
   notificarNuevoMensajeChat,
 } from '@/lib/notifications/whatsapp';
+import { ESTADO, ESTADOS_FINALES, transicionPermitida } from '@/lib/tickets/estados';
 
 const ESTADO_LABELS: Record<number, string> = {
-  1: 'Abierto',
-  2: 'En Progreso',
+  1: 'Nuevo',
+  2: 'En Proceso',
   3: 'Resuelto',
   4: 'Cerrado',
+  5: 'Cancelado',
 };
+
+// Error de regla de negocio (transición no permitida, falta un dato
+// obligatorio). La API lo traduce a 400 con el mensaje tal cual.
+export class TicketReglaError extends Error {}
 
 const PRIORIDAD_LABELS: Record<number, string> = {
   1: 'Baja',
@@ -27,6 +33,12 @@ export interface CreateTicketInput {
   descripcion: string;
   prioridad: number;
   categoriaId?: string;
+  // PR-INF-03: canal de ingreso y clasificación. Si no se pasan, el ticket
+  // queda como incidente sin módulo ni urgencia declarados.
+  canal?: string;
+  tipo?: number;
+  sistemaModulo?: string;
+  urgencia?: number;
 }
 
 export interface UpdateTicketInput {
@@ -36,6 +48,15 @@ export interface UpdateTicketInput {
   estado?: number;
   categoriaId?: string;
   empresaId?: string;
+  tipo?: number;
+  sistemaModulo?: string;
+  urgencia?: number;
+  solucion?: string;
+  motivoCancelacion?: string;
+  dependeProveedor?: boolean;
+  proveedorNombre?: string;
+  proveedorFechaCompromiso?: string; // fecha ISO (YYYY-MM-DD)
+  proveedorNotas?: string;
 }
 
 async function registrarHistorial(
@@ -138,10 +159,10 @@ async function generateNumero(): Promise<string> {
 }
 
 // A usuario's WhatsApp thread stays tied to their most recent ticket until
-// it's Cerrado (4) — new messages become comments instead of new tickets.
+// it's Cerrado o Cancelado — new messages become comments instead of new tickets.
 export async function findOpenTicketForUsuario(usuarioId: string) {
   return db.query.tickets.findFirst({
-    where: and(eq(tickets.usuarioId, usuarioId), ne(tickets.estado, 4)),
+    where: and(eq(tickets.usuarioId, usuarioId), notInArray(tickets.estado, ESTADOS_FINALES)),
     orderBy: (t, { desc }) => [desc(t.fechaCreacion)],
   });
 }
@@ -188,7 +209,12 @@ export async function createTicket(
     .values({ ...dto, numero, usuarioId, empresaId: usuario?.empresaId })
     .returning();
 
-  await registrarHistorial(ticket.id, actorId ?? usuarioId, 'CREACION', 'Ticket creado');
+  await registrarHistorial(
+    ticket.id,
+    actorId ?? usuarioId,
+    'CREACION',
+    dto.canal ? `Ticket creado (canal: ${dto.canal})` : 'Ticket creado',
+  );
 
   if (usuario?.numeroWhatsApp) {
     const link = `${process.env.APP_URL}/seguimiento/${ticket.id}`;
@@ -202,14 +228,60 @@ export async function updateTicket(id: string, dto: UpdateTicketInput, usuarioId
   const ticket = await findTicketById(id);
   if (!ticket) return null;
 
-  if (dto.estado && dto.estado !== ticket.estado) {
+  const cambiaEstado = !!dto.estado && dto.estado !== ticket.estado;
+  const solucion = dto.solucion?.trim();
+  const motivoCancelacion = dto.motivoCancelacion?.trim();
+
+  // Todas las validaciones van ANTES de escribir nada, para que un cambio
+  // rechazado no deje historial ni datos a medias.
+  if (cambiaEstado) {
+    if (!transicionPermitida(ticket.estado, dto.estado!)) {
+      throw new TicketReglaError(
+        `No se puede pasar de ${ESTADO_LABELS[ticket.estado]} a ${ESTADO_LABELS[dto.estado!]}`,
+      );
+    }
+    if (dto.estado === ESTADO.RESUELTO && !solucion) {
+      throw new TicketReglaError('Para pasar a Resuelto hay que indicar la solución aplicada');
+    }
+    if (dto.estado === ESTADO.CANCELADO && !motivoCancelacion) {
+      throw new TicketReglaError('Para cancelar el ticket hay que indicar el motivo');
+    }
+  }
+
+  // Derivación a proveedor: al marcarla hay que decir a quién.
+  const proveedorNuevo = dto.proveedorNombre?.trim() || ticket.proveedorNombre;
+  const cambiaProveedor =
+    dto.dependeProveedor !== undefined && dto.dependeProveedor !== ticket.dependeProveedor;
+  if (dto.dependeProveedor === true && !proveedorNuevo) {
+    throw new TicketReglaError('Indicá el proveedor al marcar el ticket como dependiente de un proveedor');
+  }
+  if (cambiaProveedor) {
+    await registrarHistorial(
+      id,
+      usuarioId,
+      'PROVEEDOR',
+      dto.dependeProveedor
+        ? `Derivado a proveedor: ${proveedorNuevo}${dto.proveedorFechaCompromiso ? ` (compromiso ${dto.proveedorFechaCompromiso})` : ''}`
+        : 'El ticket dejó de depender del proveedor',
+      ticket.dependeProveedor ? 'Depende de proveedor' : 'Sin proveedor',
+      dto.dependeProveedor ? 'Depende de proveedor' : 'Sin proveedor',
+    );
+  }
+
+  if (cambiaEstado) {
+    const detalle =
+      dto.estado === ESTADO.RESUELTO
+        ? ` — Solución: ${solucion}`
+        : dto.estado === ESTADO.CANCELADO
+          ? ` — Motivo: ${motivoCancelacion}`
+          : '';
     await registrarHistorial(
       id,
       usuarioId,
       'ESTADO',
-      `Estado cambiado de ${ESTADO_LABELS[ticket.estado]} a ${ESTADO_LABELS[dto.estado]}`,
+      `Estado cambiado de ${ESTADO_LABELS[ticket.estado]} a ${ESTADO_LABELS[dto.estado!]}${detalle}`,
       ESTADO_LABELS[ticket.estado],
-      ESTADO_LABELS[dto.estado],
+      ESTADO_LABELS[dto.estado!],
     );
   }
 
@@ -224,9 +296,28 @@ export async function updateTicket(id: string, dto: UpdateTicketInput, usuarioId
     );
   }
 
-  const updateValues: Partial<typeof tickets.$inferInsert> = { ...dto };
-  if (dto.estado === 3 || dto.estado === 4) {
-    updateValues.fechaResolucion = new Date();
+  const { proveedorFechaCompromiso, ...dtoSinFecha } = dto;
+  const updateValues: Partial<typeof tickets.$inferInsert> = { ...dtoSinFecha };
+  if (proveedorFechaCompromiso !== undefined) {
+    updateValues.proveedorFechaCompromiso = proveedorFechaCompromiso
+      ? new Date(`${proveedorFechaCompromiso}T12:00:00`)
+      : null;
+  }
+  // La solución / el motivo solo se guardan en el ticket cuando corresponde
+  // a la transición; si no, se ignoran para no pisar lo ya registrado.
+  delete updateValues.solucion;
+  delete updateValues.motivoCancelacion;
+  if (cambiaEstado && dto.estado === ESTADO.RESUELTO) updateValues.solucion = solucion;
+  if (cambiaEstado && dto.estado === ESTADO.CANCELADO) updateValues.motivoCancelacion = motivoCancelacion;
+
+  if (cambiaEstado) {
+    if ([ESTADO.RESUELTO, ESTADO.CERRADO, ESTADO.CANCELADO].includes(dto.estado as 3 | 4 | 5)) {
+      updateValues.fechaResolucion = new Date();
+    } else if (dto.estado === ESTADO.EN_PROCESO) {
+      // Reapertura / objeción: vuelve a estar en curso. La fecha anterior
+      // queda en el historial.
+      updateValues.fechaResolucion = null;
+    }
   }
 
   await db.update(tickets).set(updateValues).where(eq(tickets.id, id));
@@ -248,10 +339,24 @@ export async function asignarTicket(id: string, tecnicoId: string, usuarioId: st
 
   const anterior = ticket.tecnicoAsignado?.nombre ?? 'Sin asignar';
 
+  // Asignar un ticket Nuevo lo pasa a En Proceso; en cualquier otro estado
+  // solo cambia el responsable (no se fuerza una transición no permitida).
+  const pasaAEnProceso = ticket.estado === ESTADO.NUEVO;
   await db
     .update(tickets)
-    .set({ tecnicoAsignadoId: tecnicoId, estado: 2 })
+    .set({ tecnicoAsignadoId: tecnicoId, ...(pasaAEnProceso ? { estado: ESTADO.EN_PROCESO } : {}) })
     .where(eq(tickets.id, id));
+
+  if (pasaAEnProceso) {
+    await registrarHistorial(
+      id,
+      usuarioId,
+      'ESTADO',
+      `Estado cambiado de ${ESTADO_LABELS[ESTADO.NUEVO]} a ${ESTADO_LABELS[ESTADO.EN_PROCESO]}`,
+      ESTADO_LABELS[ESTADO.NUEVO],
+      ESTADO_LABELS[ESTADO.EN_PROCESO],
+    );
+  }
 
   const actualizado = await findTicketById(id);
 

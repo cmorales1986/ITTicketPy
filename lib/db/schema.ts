@@ -60,7 +60,7 @@ export const tickets = pgTable('tickets', {
   titulo: varchar('titulo', { length: 255 }).notNull(),
   descripcion: text('descripcion').notNull(),
   prioridad: integer('prioridad').notNull().default(2), // 1=Baja,2=Media,3=Alta,4=Crítica
-  estado: integer('estado').notNull().default(1), // 1=Abierto,2=En Progreso,3=Resuelto,4=Cerrado
+  estado: integer('estado').notNull().default(1), // 1=Nuevo,2=En Proceso,3=Resuelto,4=Cerrado,5=Cancelado
   usuarioId: uuid('usuarioId')
     .notNull()
     .references(() => usuarios.id),
@@ -73,6 +73,21 @@ export const tickets = pgTable('tickets', {
   // Encuesta de satisfacción (se pide por WhatsApp al cerrar el ticket)
   calificacion: integer('calificacion'), // 1-5
   comentarioEncuesta: text('comentarioEncuesta'),
+  // PR-INF-03: canal por el que ingresó (WHATSAPP | CORREO | LLAMADA).
+  // NULL en los tickets históricos, anteriores a este campo.
+  canal: varchar('canal', { length: 20 }),
+  tipo: integer('tipo').notNull().default(1), // 1=Incidente/Soporte, 2=Solicitud de desarrollo, 3=Mejora
+  sistemaModulo: varchar('sistemaModulo', { length: 255 }),
+  urgencia: integer('urgencia'), // urgencia percibida por el usuario, 1-4
+  // Obligatorios al pasar a Resuelto / Cancelado.
+  solucion: text('solucion'),
+  motivoCancelacion: text('motivoCancelacion'),
+  // Derivación a proveedor o recurso externo: el ticket sigue En Proceso pero
+  // queda marcado como dependiente de un tercero (y se ve aparte en el Kanban).
+  dependeProveedor: boolean('dependeProveedor').notNull().default(false),
+  proveedorNombre: varchar('proveedorNombre', { length: 255 }),
+  proveedorFechaCompromiso: timestamp('proveedorFechaCompromiso'),
+  proveedorNotas: text('proveedorNotas'), // hitos y verificación de entregables
 });
 
 export const comentarios = pgTable('comentarios', {

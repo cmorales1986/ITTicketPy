@@ -103,10 +103,11 @@ export default function TicketsPage() {
             className="bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-blue-500 text-sm"
           >
             <option value="">Todos los estados</option>
-            <option value="1">Abierto</option>
-            <option value="2">En Progreso</option>
+            <option value="1">Nuevo</option>
+            <option value="2">En Proceso</option>
             <option value="3">Resuelto</option>
             <option value="4">Cerrado</option>
+            <option value="5">Cancelado</option>
           </select>
 
           {/* Filtro Prioridad */}

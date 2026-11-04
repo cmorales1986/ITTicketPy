@@ -1,16 +1,27 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { requireSession, requireTecnicoOAdmin } from '@/lib/auth/guard';
-import { findTicketById, updateTicket } from '@/lib/tickets/service';
+import { findTicketById, updateTicket, TicketReglaError } from '@/lib/tickets/service';
 import { optionalUuid } from '@/lib/validation';
 
 const updateTicketSchema = z.object({
   titulo: z.string().optional(),
   descripcion: z.string().optional(),
   prioridad: z.number().min(1).max(4).optional(),
-  estado: z.number().min(1).max(4).optional(),
+  estado: z.number().min(1).max(5).optional(),
   categoriaId: optionalUuid,
   empresaId: optionalUuid,
+  tipo: z.number().min(1).max(3).optional(),
+  sistemaModulo: z.string().max(255).optional(),
+  urgencia: z.number().min(1).max(4).optional(),
+  // Obligatorios al pasar a Resuelto / Cancelado (se validan en el servicio).
+  solucion: z.string().optional(),
+  motivoCancelacion: z.string().optional(),
+  // Derivación a proveedor o recurso externo.
+  dependeProveedor: z.boolean().optional(),
+  proveedorNombre: z.string().max(255).optional(),
+  proveedorFechaCompromiso: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).or(z.literal('')).optional(),
+  proveedorNotas: z.string().optional(),
 });
 
 export async function GET(
@@ -49,7 +60,15 @@ export async function PUT(
     return NextResponse.json({ message: 'Datos inválidos' }, { status: 400 });
   }
 
-  const ticket = await updateTicket(id, parsed.data, session.sub);
+  let ticket;
+  try {
+    ticket = await updateTicket(id, parsed.data, session.sub);
+  } catch (err) {
+    if (err instanceof TicketReglaError) {
+      return NextResponse.json({ message: err.message }, { status: 400 });
+    }
+    throw err;
+  }
   if (!ticket) {
     return NextResponse.json({ message: 'Ticket no encontrado' }, { status: 404 });
   }

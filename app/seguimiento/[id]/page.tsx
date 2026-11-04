@@ -62,7 +62,7 @@ export default async function SeguimientoPage({
   const pasos = [
     { valor: 1, label: 'Ticket recibido', icon: Inbox, fecha: ticket.fechaCreacion },
     { valor: 2, label: 'En progreso', icon: Wrench, fecha: fechaAsignacion },
-    { valor: 3, label: 'Resuelto', icon: CheckCircle2, fecha: ticket.estado >= 3 ? ticket.fechaResolucion : undefined },
+    { valor: 3, label: 'Resuelto', icon: CheckCircle2, fecha: ticket.estado >= 3 && ticket.estado <= 4 ? ticket.fechaResolucion : undefined },
     { valor: 4, label: 'Cerrado', icon: Lock, fecha: ticket.estado === 4 ? ticket.fechaResolucion : undefined },
   ];
 
@@ -137,8 +137,10 @@ export default async function SeguimientoPage({
           <h2 className="text-white font-medium text-sm mb-5">Estado del ticket</h2>
           <div>
             {pasos.map((paso, i) => {
-              const completado = ticket.estado > paso.valor;
-              const actual = ticket.estado === paso.valor;
+              // Un ticket cancelado (5) no avanzó por los pasos siguientes.
+              const cancelado = ticket.estado === 5;
+              const completado = cancelado ? paso.valor === 1 : ticket.estado > paso.valor;
+              const actual = !cancelado && ticket.estado === paso.valor;
               const alcanzado = completado || actual;
               const Icon = paso.icon;
               const esUltimo = i === pasos.length - 1;

@@ -9,6 +9,7 @@ import { toast } from 'sonner';
 import api from '@/lib/axios';
 import { Categoria, Usuario } from '@/types';
 import { X, Loader2 } from 'lucide-react';
+import { TIPO_LABELS, URGENCIA_LABELS } from '@/lib/tickets/estados';
 
 const schema = z.object({
   titulo: z.string().min(5, 'Mínimo 5 caracteres'),
@@ -16,6 +17,11 @@ const schema = z.object({
   prioridad: z.number().min(1).max(4),
   categoriaId: z.string().optional(),
   usuarioId: z.string().optional(),
+  // PR-INF-03
+  canal: z.enum(['CORREO', 'LLAMADA']).optional(),
+  tipo: z.number().min(1).max(3),
+  sistemaModulo: z.string().min(1, 'Indicá el sistema o módulo afectado'),
+  urgencia: z.number().min(1).max(4),
 });
 
 type FormData = z.infer<typeof schema>;
@@ -36,7 +42,7 @@ export default function NuevoTicketModal({ open, onClose, categorias, onCreated,
 
   const { register, handleSubmit, reset, formState: { errors } } = useForm<FormData>({
     resolver: zodResolver(schema),
-    defaultValues: { prioridad: 2 },
+    defaultValues: { prioridad: 2, tipo: 1, urgencia: 2, canal: 'LLAMADA' },
   });
 
   useEffect(() => {
@@ -50,7 +56,12 @@ export default function NuevoTicketModal({ open, onClose, categorias, onCreated,
   const onSubmit = async (data: FormData) => {
     setLoading(true);
     try {
-      await api.post('/tickets', { ...data, usuarioId: data.usuarioId || undefined });
+      await api.post('/tickets', {
+        ...data,
+        usuarioId: data.usuarioId || undefined,
+        // Los clientes no eligen canal: el servidor lo registra como PORTAL.
+        canal: puedeElegirUsuario ? data.canal : undefined,
+      });
       toast.success('Ticket creado correctamente');
       reset();
       onCreated();
@@ -91,6 +102,20 @@ export default function NuevoTicketModal({ open, onClose, categorias, onCreated,
                 ))}
               </select>
               <p className="text-gray-600 text-xs mt-1">Elegí a otro usuario si estás cargando el ticket por él/ella (ej. reportó por teléfono)</p>
+            </div>
+          )}
+
+          {puedeElegirUsuario && (
+            <div>
+              <label className="text-sm text-gray-400 mb-1 block">Canal de ingreso *</label>
+              <select
+                {...register('canal')}
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-blue-500 text-sm"
+              >
+                <option value="CORREO">Correo electrónico</option>
+                <option value="LLAMADA">Llamada</option>
+              </select>
+              <p className="text-gray-600 text-xs mt-1">Los reportes por WhatsApp los crea el bot automáticamente</p>
             </div>
           )}
 
@@ -141,6 +166,41 @@ export default function NuevoTicketModal({ open, onClose, categorias, onCreated,
                 ))}
               </select>
             </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="text-sm text-gray-400 mb-1 block">Tipo *</label>
+              <select
+                {...register('tipo', { valueAsNumber: true })}
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-blue-500 text-sm"
+              >
+                {Object.entries(TIPO_LABELS).map(([v, l]) => (
+                  <option key={v} value={v}>{l}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="text-sm text-gray-400 mb-1 block">Urgencia percibida *</label>
+              <select
+                {...register('urgencia', { valueAsNumber: true })}
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-blue-500 text-sm"
+              >
+                {Object.entries(URGENCIA_LABELS).map(([v, l]) => (
+                  <option key={v} value={v}>{l}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label className="text-sm text-gray-400 mb-1 block">Sistema / módulo afectado *</label>
+            <input
+              {...register('sistemaModulo')}
+              placeholder="Ej: SAP B1 — Compras"
+              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 text-sm"
+            />
+            {errors.sistemaModulo && <p className="text-red-400 text-xs mt-1">{errors.sistemaModulo.message}</p>}
           </div>
 
           {/* Botones */}

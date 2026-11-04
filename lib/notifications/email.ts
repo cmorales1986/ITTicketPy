@@ -132,10 +132,11 @@ function infoTicket(data: EmailTicketData): string {
     Crítica: '#ef4444',
   };
   const estadoColor: Record<string, string> = {
-    Abierto: '#eab308',
-    'En Progreso': '#3b82f6',
+    Nuevo: '#eab308',
+    'En Proceso': '#3b82f6',
     Resuelto: '#22c55e',
     Cerrado: '#6b7280',
+    Cancelado: '#ef4444',
   };
 
   return `

@@ -53,6 +53,7 @@ export async function checkInboundEmail(): Promise<CheckInboundEmailResult> {
               titulo: parsed.subject?.trim() || '(sin asunto)',
               descripcion: parsed.text?.trim() || '(sin contenido)',
               prioridad: 2,
+              canal: 'CORREO',
             },
             usuario.id,
           );

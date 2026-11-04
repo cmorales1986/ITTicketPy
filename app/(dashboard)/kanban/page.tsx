@@ -1,4 +1,5 @@
 /* eslint-disable react-hooks/immutability */
+/* eslint-disable @typescript-eslint/no-explicit-any */
 'use client';
 
 import { useEffect, useState } from 'react';
@@ -10,12 +11,14 @@ import { Loader2, Plus } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { useRouter } from 'next/navigation';
+import { ESTADO, transicionPermitida } from '@/lib/tickets/estados';
 
 const COLUMNAS = [
-  { id: 1, label: 'Abierto', color: 'border-yellow-500' },
-  { id: 2, label: 'En Progreso', color: 'border-blue-500' },
+  { id: 1, label: 'Nuevo', color: 'border-yellow-500' },
+  { id: 2, label: 'En Proceso', color: 'border-blue-500' },
   { id: 3, label: 'Resuelto', color: 'border-green-500' },
   { id: 4, label: 'Cerrado', color: 'border-gray-500' },
+  { id: 5, label: 'Cancelado', color: 'border-red-500' },
 ];
 
 export default function KanbanPage() {
@@ -45,6 +48,26 @@ export default function KanbanPage() {
     if (destination.droppableId === source.droppableId) return;
 
     const nuevoEstado = Number(destination.droppableId);
+    const estadoActual = Number(source.droppableId);
+
+    // PR-INF-03: solo se permiten las transiciones del procedimiento.
+    if (!transicionPermitida(estadoActual, nuevoEstado)) {
+      toast.error(`No se puede pasar de ${ESTADO_LABELS[estadoActual]} a ${ESTADO_LABELS[nuevoEstado]}`);
+      return;
+    }
+
+    // Resuelto y Cancelado exigen un dato obligatorio (solución / motivo).
+    const extra: { solucion?: string; motivoCancelacion?: string } = {};
+    if (nuevoEstado === ESTADO.RESUELTO) {
+      const solucion = window.prompt('Solución aplicada (obligatoria):')?.trim();
+      if (!solucion) return;
+      extra.solucion = solucion;
+    }
+    if (nuevoEstado === ESTADO.CANCELADO) {
+      const motivo = window.prompt('Motivo de la cancelación (obligatorio):')?.trim();
+      if (!motivo) return;
+      extra.motivoCancelacion = motivo;
+    }
 
     // Actualizar UI optimistamente
     setTickets(prev =>
@@ -54,10 +77,10 @@ export default function KanbanPage() {
     );
 
     try {
-      await api.put(`/tickets/${draggableId}`, { estado: nuevoEstado });
+      await api.put(`/tickets/${draggableId}`, { estado: nuevoEstado, ...extra });
       toast.success(`Ticket movido a ${ESTADO_LABELS[nuevoEstado]}`);
-    } catch {
-      toast.error('Error al actualizar ticket');
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'Error al actualizar ticket');
       fetchTickets(); // Revertir
     }
   };
@@ -174,6 +197,14 @@ export default function KanbanPage() {
                                   })}
                                 </span>
                               </div>
+
+                              {ticket.dependeProveedor && (
+                                <div className="mt-2">
+                                  <span className="text-xs px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-400 font-medium">
+                                    Depende de proveedor{ticket.proveedorNombre ? `: ${ticket.proveedorNombre}` : ''}
+                                  </span>
+                                </div>
+                              )}
 
                               {/* Categoría */}
                               {ticket.categoria && (

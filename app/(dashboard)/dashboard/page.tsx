@@ -81,7 +81,7 @@ export default function DashboardPage() {
           color="blue"
         />
         <StatCard
-          label="Abiertos"
+          label="Nuevos"
           value={stats.abiertos}
           icon={<AlertCircle className="w-5 h-5" />}
           color="yellow"
