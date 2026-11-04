@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { del } from '@vercel/blob';
 import { requireTecnicoOAdmin } from '@/lib/auth/guard';
-import { eliminarAdjunto } from '@/lib/tickets/service';
+import { eliminarAdjunto, TicketReglaError } from '@/lib/tickets/service';
 
 export async function DELETE(
   _request: NextRequest,
@@ -11,7 +11,15 @@ export async function DELETE(
   if (error) return error;
 
   const { adjuntoId } = await params;
-  const adjunto = await eliminarAdjunto(adjuntoId);
+  let adjunto;
+  try {
+    adjunto = await eliminarAdjunto(adjuntoId);
+  } catch (err) {
+    if (err instanceof TicketReglaError) {
+      return NextResponse.json({ message: err.message, code: err.code }, { status: 409 });
+    }
+    throw err;
+  }
   if (!adjunto) {
     return NextResponse.json({ message: 'Adjunto no encontrado' }, { status: 404 });
   }

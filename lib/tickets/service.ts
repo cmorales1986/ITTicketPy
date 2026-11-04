@@ -7,7 +7,7 @@ import {
   notificarTicketCerrado,
   notificarNuevoMensajeChat,
 } from '@/lib/notifications/whatsapp';
-import { ESTADO, ESTADOS_FINALES, transicionPermitida } from '@/lib/tickets/estados';
+import { ANIOS_CONSERVACION, ESTADO, ESTADOS_FINALES, transicionPermitida } from '@/lib/tickets/estados';
 import {
   calcularReapertura,
   calcularSla,
@@ -537,6 +537,20 @@ export async function agregarAdjunto(
 export async function eliminarAdjunto(adjuntoId: string) {
   const adjunto = await db.query.adjuntos.findFirst({ where: eq(adjuntos.id, adjuntoId) });
   if (!adjunto) return null;
+
+  // Los adjuntos de un ticket Cerrado o Cancelado son evidencia: se
+  // conservan 3 años desde el cierre (también lo bloquea la base).
+  const ticket = await db.query.tickets.findFirst({ where: eq(tickets.id, adjunto.ticketId) });
+  if (ticket && ESTADOS_FINALES.includes(ticket.estado)) {
+    const limite = new Date();
+    limite.setFullYear(limite.getFullYear() - ANIOS_CONSERVACION);
+    if (!ticket.fechaCierre || new Date(ticket.fechaCierre) >= limite) {
+      throw new TicketReglaError(
+        `Este ticket está ${ticket.estado === ESTADO.CERRADO ? 'cerrado' : 'cancelado'}: sus adjuntos se conservan ${ANIOS_CONSERVACION} años desde el cierre`,
+        'CONSERVACION',
+      );
+    }
+  }
 
   await db.delete(adjuntos).where(eq(adjuntos.id, adjuntoId));
   return adjunto;

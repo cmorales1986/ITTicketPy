@@ -233,8 +233,8 @@ export default function TicketDetallePage() {
       await api.delete(`/tickets/${id}/adjuntos/${adjuntoId}`);
       await fetchData();
       toast.success("Adjunto eliminado");
-    } catch {
-      toast.error("Error al eliminar el adjunto");
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || "Error al eliminar el adjunto");
     }
   };
 

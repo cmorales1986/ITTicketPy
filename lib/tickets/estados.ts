@@ -13,6 +13,11 @@ export const ESTADO = {
 // Estados finales: el ticket ya no se atiende (ver conservación, PR-INF-03).
 export const ESTADOS_FINALES: number[] = [ESTADO.CERRADO, ESTADO.CANCELADO];
 
+// Años que se conservan los tickets cerrados o cancelados (PR-INF-03). La
+// base lo hace cumplir con triggers (drizzle/0004); la app solo lo usa para
+// avisar con un mensaje claro antes de intentar borrar.
+export const ANIOS_CONSERVACION = 3;
+
 // Transiciones permitidas. Cualquier otra se bloquea.
 //  Nuevo -> En Proceso -> Resuelto -> Cerrado
 //  Resuelto -> En Proceso (el usuario objeta)
