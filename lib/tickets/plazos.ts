@@ -6,6 +6,7 @@
 import {
   type ConfigHorario,
   type Horario,
+  finDeDia,
   jornadaMinutos,
   minutosHabilesEntre,
   sumarMinutosHabiles,
@@ -95,6 +96,8 @@ export interface TicketParaSla {
   // (correo o llamada cargados después). Desde acá corren los plazos.
   fechaRecepcion?: Date | string | null;
   lugarOrigen?: string | null;
+  // Plazo definido en la evaluación de un desarrollo o mejora ("YYYY-MM-DD").
+  plazoPropuesto?: string | null;
   prioridad: number;
   tipo: number;
   estado: number;
@@ -134,6 +137,22 @@ function medir(
   return { estado, limite, usadosMin: usados, plazoMin };
 }
 
+// Desarrollo y mejora: su plazo es la fecha propuesta en la evaluación
+// (calendario, no horas hábiles). Vence cuando termina ese día; queda "por
+// vencer" el último día. Sin fecha propuesta no hay nada que medir.
+function medirPlazoPropuesto(
+  plazoPropuesto: string | null | undefined,
+  fin: Date | null,
+  ahora: Date,
+): Medicion {
+  if (!plazoPropuesto) return NO_APLICA;
+  const limite = finDeDia(plazoPropuesto);
+  const base = { limite: limite.toISOString(), usadosMin: null, plazoMin: null };
+  if (fin) return { ...base, estado: fin < limite ? 'cumplido' : 'cumplido_tarde' };
+  if (ahora >= limite) return { ...base, estado: 'vencido' };
+  return { ...base, estado: limite.getTime() - ahora.getTime() <= 24 * 60 * 60 * 1000 ? 'por_vencer' : 'en_plazo' };
+}
+
 const ORDEN_RESUMEN: EstadoPlazo[] = [
   'vencido',
   'por_vencer',
@@ -171,9 +190,15 @@ export function calcularSla(t: TicketParaSla, cfgPlazos: ConfigPlazos, ahora: Da
   // Resolución: no aplica a desarrollo ni mejora, que tienen un plazo propio
   // definido en la evaluación (P2).
   const resolucion =
-    cancelado || TIPOS_SIN_PLAZO_RESOLUCION.includes(t.tipo)
+    cancelado
       ? NO_APLICA
-      : medir(
+      : TIPOS_SIN_PLAZO_RESOLUCION.includes(t.tipo)
+        ? medirPlazoPropuesto(
+            t.plazoPropuesto,
+            resuelto && t.fechaResolucion ? new Date(t.fechaResolucion) : null,
+            ahora,
+          )
+        : medir(
           creacion,
           resolucionMin,
           resuelto && t.fechaResolucion ? new Date(t.fechaResolucion) : null,

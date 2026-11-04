@@ -151,6 +151,12 @@ export function limitesDeRango(desde: string, hasta: string): { desde: Date; has
   return { desde: deLocal(desde, 0), hasta: deLocal(sumarDias(hasta, 1), 0) };
 }
 
+// Primer instante del día siguiente a `fecha` ("YYYY-MM-DD"), hora de Paraguay:
+// un plazo "hasta el día X" vence cuando termina ese día.
+export function finDeDia(fecha: string): Date {
+  return deLocal(sumarDias(fecha, 1), 0);
+}
+
 // Excel guarda las fechas sin zona horaria: devuelve un Date cuyos campos UTC
 // son la hora local de Paraguay, para que la planilla muestre esa hora.
 export function aFechaExcel(d: Date): Date {

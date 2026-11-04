@@ -1,6 +1,6 @@
 import { and, count, eq, gte, isNull, lte, notInArray } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { tickets, comentarios, historial, usuarios, adjuntos, mensajesChat } from '@/lib/db/schema';
+import { tickets, comentarios, historial, usuarios, adjuntos, mensajesChat, aprobaciones } from '@/lib/db/schema';
 import {
   notificarTicketCreado,
   notificarTicketAsignado,
@@ -11,8 +11,12 @@ import {
   ANIOS_CONSERVACION,
   ESTADO,
   ESTADOS_FINALES,
+  APROBACION_LABELS,
+  RESULTADOS_PRUEBAS,
   TIPOS_SIN_PLAZO_RESOLUCION,
+  esDesarrolloOMejora,
   transicionPermitida,
+  type AprobacionTipo,
 } from '@/lib/tickets/estados';
 import {
   calcularReapertura,
@@ -22,6 +26,7 @@ import {
   type TicketParaSla,
 } from '@/lib/tickets/plazos';
 import { jornadaMinutos, limitesDeRango, minutosHabilesEntre } from '@/lib/tickets/horario';
+import { validarReglasP2 } from '@/lib/tickets/reglas';
 import { obtenerConfigPlazos } from '@/lib/config/service';
 
 const ESTADO_LABELS: Record<number, string> = {
@@ -105,7 +110,33 @@ export interface UpdateTicketInput {
   motivoDesvio?: string;
   motivoReapertura?: string; // obligatorio al reabrir un ticket Cerrado
   lugarOrigen?: string;
+  // P2: evaluación, pruebas y puesta en producción (solo desarrollo y mejora)
+  evalAlcance?: string;
+  evalEsfuerzo?: string;
+  evalConCosto?: boolean;
+  evalCosto?: string;
+  evalImpacto?: string;
+  plazoPropuesto?: string; // "YYYY-MM-DD" o "" para borrarlo
+  pruebasResultado?: string;
+  pruebasFecha?: string;
+  pruebasNota?: string;
+  produccionFecha?: string;
+  // P2: proveedor, causa y reincidencia
+  proveedorEntregablesVerificados?: boolean;
+  analisisCausa?: string;
+  reincidente?: boolean;
 }
+
+const CAMPOS_EVALUACION = [
+  'evalAlcance',
+  'evalEsfuerzo',
+  'evalConCosto',
+  'evalCosto',
+  'evalImpacto',
+  'plazoPropuesto',
+] as const;
+const CAMPOS_PRUEBAS = ['pruebasResultado', 'pruebasFecha', 'pruebasNota'] as const;
+const CAMPOS_SOLO_DESARROLLO = [...CAMPOS_EVALUACION, ...CAMPOS_PRUEBAS, 'produccionFecha'] as const;
 
 async function registrarHistorial(
   ticketId: string,
@@ -157,7 +188,22 @@ async function findAllTicketsSinSla(estado?: number, prioridad?: number, soloDeU
 export async function findTicketById(id: string) {
   const ticket = await cargarTicket(id);
   if (!ticket) return ticket;
-  return conSla(ticket, await obtenerConfigPlazos());
+  return {
+    ...conSla(ticket, await obtenerConfigPlazos()),
+    // Cuántos tickets del mismo sistema o servicio hubo en los últimos 30 días
+    // (este incluido): 3 o más sugiere reincidencia.
+    mismoSistema30d: await contarMismoSistema30d(ticket.sistemaModulo),
+  };
+}
+
+async function contarMismoSistema30d(sistema: string | null): Promise<number> {
+  if (!sistema) return 0;
+  const desde = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  const [{ value }] = await db
+    .select({ value: count() })
+    .from(tickets)
+    .where(and(eq(tickets.sistemaModulo, sistema), gte(tickets.fechaCreacion, desde)));
+  return value;
 }
 
 async function cargarTicket(id: string) {
@@ -170,6 +216,10 @@ async function cargarTicket(id: string) {
       empresa: true,
       ticketAnterior: true,
       continuaciones: true,
+      aprobaciones: {
+        with: { registradoPor: true },
+        orderBy: (a, { asc }) => [asc(a.fechaRegistro)],
+      },
       comentarios: {
         with: { usuario: true },
         orderBy: (c, { asc }) => [asc(c.fechaCreacion)],
@@ -334,6 +384,29 @@ export async function updateTicket(id: string, dto: UpdateTicketInput, usuarioId
     }
   }
 
+  // P2: análisis de causa y puesta en producción. Los valores ya recortados se
+  // reutilizan más abajo para el historial y para guardar.
+  const analisisCausa = dto.analisisCausa !== undefined ? dto.analisisCausa.trim() : undefined;
+  const produccionNueva = dto.produccionFecha?.trim();
+
+  // Reglas de P2 (causa, proveedor, conformidad, aprobaciones, producción).
+  const incumplida = validarReglasP2(
+    ticket,
+    {
+      estado: dto.estado,
+      prioridad: dto.prioridad,
+      reincidente: dto.reincidente,
+      analisisCausa,
+      dependeProveedor: dto.dependeProveedor,
+      proveedorEntregablesVerificados: dto.proveedorEntregablesVerificados,
+      evalConCosto: dto.evalConCosto,
+      produccionFecha: produccionNueva,
+      camposDesarrolloTocados: CAMPOS_SOLO_DESARROLLO.some((c) => dto[c] !== undefined),
+    },
+    cambiaEstado,
+  );
+  if (incumplida) throw new TicketReglaError(incumplida.message, incumplida.code);
+
   // Reapertura de un ticket Cerrado: solo dentro de N días hábiles posteriores
   // al cierre y con motivo. Pasado ese plazo hay que crear un ticket nuevo
   // vinculado (ticketAnteriorId).
@@ -442,6 +515,64 @@ export async function updateTicket(id: string, dto: UpdateTicketInput, usuarioId
     );
   }
 
+  // Constancia en el historial de lo que se evaluó, probó y puso en producción.
+  const cambio = (campos: readonly (keyof UpdateTicketInput)[]) =>
+    campos.filter(
+      (c) => dto[c] !== undefined && (dto[c] ?? '') !== ((ticket as Record<string, unknown>)[c] ?? ''),
+    );
+  const cambiosEvaluacion = cambio(CAMPOS_EVALUACION);
+  if (cambiosEvaluacion.length > 0) {
+    await registrarHistorial(
+      id,
+      usuarioId,
+      'EVALUACION',
+      `Evaluación actualizada (${cambiosEvaluacion.join(', ')})${dto.plazoPropuesto ? ` — plazo propuesto: ${dto.plazoPropuesto}` : ''}`,
+    );
+  }
+  if (cambio(CAMPOS_PRUEBAS).length > 0) {
+    const r = dto.pruebasResultado ?? ticket.pruebasResultado;
+    await registrarHistorial(
+      id,
+      usuarioId,
+      'PRUEBAS',
+      `Pruebas: ${r ? (RESULTADOS_PRUEBAS[r] ?? r) : 'sin resultado'}${dto.pruebasFecha ? ` (${dto.pruebasFecha})` : ''}${dto.pruebasNota ? ` — ${dto.pruebasNota}` : ''}`,
+    );
+  }
+  if (produccionNueva) {
+    await registrarHistorial(id, usuarioId, 'PRODUCCION', `Puesta en producción registrada (${produccionNueva})`);
+  }
+  if (analisisCausa !== undefined && analisisCausa !== (ticket.analisisCausa ?? '')) {
+    await registrarHistorial(
+      id,
+      usuarioId,
+      'CAUSA',
+      analisisCausa ? 'Análisis de causa registrado' : 'Análisis de causa borrado',
+      undefined,
+      analisisCausa || undefined,
+    );
+  }
+  if (dto.reincidente !== undefined && dto.reincidente !== ticket.reincidente) {
+    await registrarHistorial(
+      id,
+      usuarioId,
+      'REINCIDENCIA',
+      dto.reincidente ? 'Ticket marcado como reincidente' : 'Ticket desmarcado como reincidente',
+    );
+  }
+  if (
+    dto.proveedorEntregablesVerificados !== undefined &&
+    dto.proveedorEntregablesVerificados !== ticket.proveedorEntregablesVerificados
+  ) {
+    await registrarHistorial(
+      id,
+      usuarioId,
+      'PROVEEDOR',
+      dto.proveedorEntregablesVerificados
+        ? 'Entregables del proveedor verificados'
+        : 'Entregables del proveedor sin verificar',
+    );
+  }
+
   const { proveedorFechaCompromiso, motivoReapertura: _motivoReapertura, ...dtoSinFecha } = dto;
   void _motivoReapertura; // solo va al historial, no es columna
   const updateValues: Partial<typeof tickets.$inferInsert> = { ...dtoSinFecha };
@@ -452,6 +583,13 @@ export async function updateTicket(id: string, dto: UpdateTicketInput, usuarioId
   }
   // La solución / el motivo solo se guardan en el ticket cuando corresponde
   // a la transición; si no, se ignoran para no pisar lo ya registrado.
+  // Fechas de P2: "" borra el valor. La puesta en producción no se borra.
+  for (const campo of ['plazoPropuesto', 'pruebasFecha'] as const) {
+    if (dto[campo] !== undefined) updateValues[campo] = dto[campo] || null;
+  }
+  if (!produccionNueva) delete updateValues.produccionFecha;
+  if (analisisCausa !== undefined) updateValues.analisisCausa = analisisCausa || null;
+
   delete updateValues.solucion;
   delete updateValues.motivoCancelacion;
   delete updateValues.motivoDesvio;
@@ -652,6 +790,9 @@ export async function cerrarResueltosSinRespuesta(ahora = new Date()) {
   const cerrados: string[] = [];
   for (const t of resueltos) {
     if (!t.fechaResolucion) continue;
+    // Desarrollo y mejora exigen la conformidad del usuario para cerrarse: no
+    // se cierran solos por falta de respuesta.
+    if (esDesarrolloOMejora(t.tipo)) continue;
     // Los días hábiles se cuentan con el horario del lugar de origen del ticket.
     const h = horarioDe(t.lugarOrigen, cfg);
     const maxMin = cfg.cierre.diasCierre * jornadaMinutos(h.horario);
@@ -722,4 +863,37 @@ export async function findTicketsDelPeriodo(desdeDia: string, hastaDia: string) 
     with: { usuario: true, tecnicoAsignado: true, categoria: true, empresa: true },
     orderBy: (t, { asc }) => [asc(t.fechaCreacion)],
   });
+}
+
+// Aprobaciones de una solicitud de desarrollo o mejora: quién aprobó, cuándo y
+// el comentario o evidencia. Solo de alta; si hay un error se registra otra.
+export async function registrarAprobacion(
+  ticketId: string,
+  registradoPorId: string,
+  datos: { tipo: AprobacionTipo; aprobadoPor: string; fechaAprobacion: string; comentario: string },
+) {
+  const ticket = await cargarTicket(ticketId);
+  if (!ticket) return null;
+  if (!esDesarrolloOMejora(ticket.tipo)) {
+    throw new TicketReglaError('Las aprobaciones son solo para solicitudes de desarrollo y mejora');
+  }
+  if (datos.tipo === 'GG' && !ticket.evalConCosto) {
+    throw new TicketReglaError('La aprobación de Gerencia General es solo si la solicitud tiene costo');
+  }
+
+  await db.insert(aprobaciones).values({
+    ticketId,
+    tipo: datos.tipo,
+    aprobadoPor: datos.aprobadoPor.trim(),
+    fechaAprobacion: datos.fechaAprobacion,
+    comentario: datos.comentario.trim(),
+    registradoPorId,
+  });
+  await registrarHistorial(
+    ticketId,
+    registradoPorId,
+    'APROBACION',
+    `Aprobación de ${APROBACION_LABELS[datos.tipo].titulo}: ${datos.aprobadoPor.trim()} (${datos.fechaAprobacion}) — ${datos.comentario.trim()}`,
+  );
+  return findTicketById(ticketId);
 }

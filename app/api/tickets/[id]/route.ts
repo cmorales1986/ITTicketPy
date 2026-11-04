@@ -3,7 +3,9 @@ import { z } from 'zod';
 import { requireSession, requireTecnicoOAdmin } from '@/lib/auth/guard';
 import { findTicketById, updateTicket, TicketReglaError } from '@/lib/tickets/service';
 import { optionalUuid } from '@/lib/validation';
-import { LUGAR, sistemaAfectadoValido } from '@/lib/tickets/estados';
+import { LUGAR, RESULTADOS_PRUEBAS, sistemaAfectadoValido } from '@/lib/tickets/estados';
+
+const fechaOVacia = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).or(z.literal('')).optional();
 
 const updateTicketSchema = z.object({
   titulo: z.string().optional(),
@@ -29,6 +31,21 @@ const updateTicketSchema = z.object({
   // Obligatorio al reabrir un ticket Cerrado (y opcional si el usuario objeta
   // una solución).
   motivoReapertura: z.string().optional(),
+  // P2: evaluación, pruebas y puesta en producción (desarrollo y mejora).
+  evalAlcance: z.string().optional(),
+  evalEsfuerzo: z.string().max(100).optional(),
+  evalConCosto: z.boolean().optional(),
+  evalCosto: z.string().max(100).optional(),
+  evalImpacto: z.string().optional(),
+  plazoPropuesto: fechaOVacia,
+  pruebasResultado: z.enum(Object.keys(RESULTADOS_PRUEBAS) as [string, ...string[]]).optional(),
+  pruebasFecha: fechaOVacia,
+  pruebasNota: z.string().optional(),
+  produccionFecha: fechaOVacia,
+  // P2: proveedor, causa y reincidencia.
+  proveedorEntregablesVerificados: z.boolean().optional(),
+  analisisCausa: z.string().optional(),
+  reincidente: z.boolean().optional(),
 });
 
 export async function GET(

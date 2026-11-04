@@ -32,6 +32,9 @@ export interface TicketExportable {
   conformidadFecha: Date | string | null;
   conformidadCanal: string | null;
   conformidadNota: string | null;
+  analisisCausa: string | null;
+  reincidente: boolean;
+  produccionFecha: string | null;
 }
 
 const ESTADOS: Record<number, string> = { 1: 'Nuevo', 2: 'En Proceso', 3: 'Resuelto', 4: 'Cerrado', 5: 'Cancelado' };
@@ -61,6 +64,9 @@ export function observaciones(t: TicketExportable): string {
   if (t.reaperturas > 0) partes.push(`Reabierto ${t.reaperturas} ${t.reaperturas === 1 ? 'vez' : 'veces'}`);
   if (t.motivoDesvio) partes.push(`Motivo del desvío: ${t.motivoDesvio}`);
   if (t.dependeProveedor) partes.push(`Proveedor: ${t.proveedorNombre ?? 'sin indicar'}`);
+  if (t.analisisCausa) partes.push(`Causa: ${t.analisisCausa}`);
+  if (t.reincidente) partes.push('Reincidente');
+  if (t.produccionFecha) partes.push(`Puesta en producción: ${String(t.produccionFecha).slice(0, 10)}`);
   return partes.join(' | ');
 }
 

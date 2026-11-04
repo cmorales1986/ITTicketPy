@@ -95,6 +95,22 @@ export interface Ticket {
   ticketAnteriorId?: string | null;
   ticketAnterior?: Ticket | null;
   continuaciones?: Ticket[];
+  // P2
+  evalAlcance?: string | null;
+  evalEsfuerzo?: string | null;
+  evalConCosto: boolean;
+  evalCosto?: string | null;
+  evalImpacto?: string | null;
+  plazoPropuesto?: string | null;
+  pruebasResultado?: string | null;
+  pruebasFecha?: string | null;
+  pruebasNota?: string | null;
+  produccionFecha?: string | null;
+  proveedorEntregablesVerificados: boolean;
+  analisisCausa?: string | null;
+  reincidente: boolean;
+  aprobaciones?: Aprobacion[];
+  mismoSistema30d?: number;
   sla?: Sla;
   reapertura?: { permitida: boolean; limite: string | null } | null;
   usuarioId: string;
@@ -113,6 +129,16 @@ export interface Ticket {
   historiales?: Historial[];
   adjuntos?: Adjunto[];
   mensajesChat?: MensajeChat[];
+}
+
+export interface Aprobacion {
+  id: string;
+  tipo: 'AREA' | 'TI' | 'GG';
+  aprobadoPor: string;
+  fechaAprobacion: string;
+  comentario: string;
+  fechaRegistro: string;
+  registradoPor?: Usuario;
 }
 
 export interface Comentario {

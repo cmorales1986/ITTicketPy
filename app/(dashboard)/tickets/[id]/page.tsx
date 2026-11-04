@@ -27,9 +27,12 @@ import {
   SISTEMAS_AFECTADOS,
   CANALES_CONFORMIDAD,
   URGENCIA_LABELS,
+  esDesarrolloOMejora,
 } from "@/lib/tickets/estados";
 import { ESTADO_PLAZO_COLORS, ESTADO_PLAZO_LABELS, formatearMinutos } from "@/lib/tickets/plazos";
 import NuevoTicketModal from "@/components/tickets/NuevoTicketModal";
+import DesarrolloPanel from "@/components/tickets/DesarrolloPanel";
+import AnalisisCausa from "@/components/tickets/AnalisisCausa";
 import Timeline from "@/components/tickets/Timeline";
 import Estrellas from "@/components/tickets/Estrellas";
 import { useAuthStore } from "@/store/auth.store";
@@ -438,6 +441,12 @@ export default function TicketDetallePage() {
               )}
             </div>
           )}
+
+          {isTecnicoOrAdmin && esDesarrolloOMejora(ticket.tipo) && (
+            <DesarrolloPanel key={ticket.id} ticket={ticket} onChanged={fetchData} />
+          )}
+
+          {isTecnicoOrAdmin && <AnalisisCausa key={ticket.id} ticket={ticket} onChanged={fetchData} />}
 
           {(ticket.estado === ESTADO.CERRADO || ticket.estado === ESTADO.CANCELADO) && (
             <div className="bg-gray-900 border border-gray-700 rounded-xl p-5 space-y-3">
@@ -931,6 +940,15 @@ export default function TicketDetallePage() {
                 </label>
                 {ticket.dependeProveedor && (
                   <>
+                    <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={ticket.proveedorEntregablesVerificados}
+                        disabled={actualizando}
+                        onChange={(e) => cambiarClasificacion({ proveedorEntregablesVerificados: e.target.checked })}
+                      />
+                      Entregables verificados
+                    </label>
                     <div>
                       <label className="text-gray-500 text-xs mb-1 block">Proveedor</label>
                       <input

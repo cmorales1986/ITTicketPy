@@ -94,6 +94,30 @@ export function sistemaAfectadoValido(valor: string): boolean {
   );
 }
 
+// --- P2: desarrollo y mejora ---
+
+export const RESULTADOS_PRUEBAS: Record<string, string> = {
+  APROBADAS: 'Aprobadas',
+  CON_OBSERVACIONES: 'Con observaciones',
+  RECHAZADAS: 'Rechazadas',
+};
+
+// Aprobaciones: quién valida cada cosa.
+export const APROBACION_TIPOS = ['AREA', 'TI', 'GG'] as const;
+export type AprobacionTipo = (typeof APROBACION_TIPOS)[number];
+
+export const APROBACION_LABELS: Record<AprobacionTipo, { titulo: string; detalle: string }> = {
+  AREA: { titulo: 'Gerente del área solicitante', detalle: 'Valida la necesidad' },
+  TI: { titulo: 'Gerente de TI', detalle: 'Aprueba alcance, prioridad y puesta en producción' },
+  GG: { titulo: 'Gerencia General', detalle: 'Solo si hay costo' },
+};
+
+// Evaluación, aprobaciones, pruebas y puesta en producción solo aplican a
+// solicitudes de desarrollo y mejora.
+export function esDesarrolloOMejora(tipo: number): boolean {
+  return TIPOS_SIN_PLAZO_RESOLUCION.includes(tipo);
+}
+
 // Canales por los que el equipo registra la conformidad del usuario.
 export const CANALES_CONFORMIDAD = ['WHATSAPP', 'CORREO', 'LLAMADA'] as const;
 

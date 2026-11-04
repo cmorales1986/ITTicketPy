@@ -51,6 +51,8 @@ export default function ReportesPage() {
   const [filtroEstado, setFiltroEstado] = useState('');
   const [filtroCategoria, setFiltroCategoria] = useState('');
   const [exportando, setExportando] = useState(false);
+  const [reincidencias, setReincidencias] = useState<{ sistema: string; total: number; tickets: string[] }[]>([]);
+  const [umbralReincidencia, setUmbralReincidencia] = useState(3);
 
   useEffect(() => {
     // Solo admins pueden ver esta página
@@ -61,6 +63,10 @@ export default function ReportesPage() {
     Promise.all([api.get('/empresas?all=1'), api.get('/categorias?all=1')])
       .then(([e, c]) => { setEmpresas(e.data); setCategorias(c.data); })
       .catch(() => toast.error('Error al cargar filtros'));
+    api
+      .get('/reportes/reincidencias')
+      .then((r) => { setReincidencias(r.data.sistemas); setUmbralReincidencia(r.data.umbral); })
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -261,6 +267,34 @@ export default function ReportesPage() {
             <p className="text-white text-2xl font-bold mt-1">{cantidad}</p>
           </div>
         ))}
+      </div>
+
+      {/* Posible reincidencia: tickets por sistema en los últimos 30 días */}
+      <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 print:hidden">
+        <h2 className="text-white font-medium">Tickets por sistema o servicio — últimos 30 días</h2>
+        <p className="text-gray-500 text-xs mt-1 mb-3">
+          {umbralReincidencia} o más del mismo sistema pueden ser una reincidencia. Revisalos y marcá a mano el
+          ticket como reincidente si es la misma falla.
+        </p>
+        {reincidencias.length === 0 ? (
+          <p className="text-gray-500 text-sm">Sin tickets con sistema afectado en el período.</p>
+        ) : (
+          <ul className="divide-y divide-gray-800">
+            {reincidencias.map((r) => (
+              <li key={r.sistema} className="py-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+                <span className="text-gray-200 min-w-40">{r.sistema}</span>
+                <span
+                  className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                    r.total >= umbralReincidencia ? 'bg-orange-500/10 text-orange-400' : 'bg-gray-500/10 text-gray-400'
+                  }`}
+                >
+                  {r.total} {r.total === 1 ? 'ticket' : 'tickets'}
+                </span>
+                <span className="text-gray-500 text-xs font-mono">{r.tickets.join(', ')}</span>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
 
       {/* Tabla */}

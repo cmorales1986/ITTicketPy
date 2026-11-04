@@ -114,6 +114,49 @@ export const tickets = pgTable('tickets', {
   conformidadFecha: timestamp('conformidadFecha'),
   conformidadCanal: varchar('conformidadCanal', { length: 20 }),
   conformidadNota: text('conformidadNota'),
+
+  // --- P2: solicitudes de desarrollo y mejora (campos simples, sin flujos) ---
+  // Evaluación. El plazo propuesto es el plazo de resolución de estos tipos.
+  evalAlcance: text('evalAlcance'),
+  evalEsfuerzo: varchar('evalEsfuerzo', { length: 100 }), // texto libre: "16 horas", "3 días"
+  evalConCosto: boolean('evalConCosto').notNull().default(false), // si hay costo, se pide Gerencia General
+  evalCosto: varchar('evalCosto', { length: 100 }),
+  evalImpacto: text('evalImpacto'), // impacto sobre otros sistemas
+  plazoPropuesto: date('plazoPropuesto', { mode: 'string' }),
+  // Pruebas.
+  pruebasResultado: varchar('pruebasResultado', { length: 20 }), // APROBADAS | CON_OBSERVACIONES | RECHAZADAS
+  pruebasFecha: date('pruebasFecha', { mode: 'string' }),
+  pruebasNota: text('pruebasNota'),
+  // Puesta en producción (exige conformidad y aprobación del Gerente de TI).
+  produccionFecha: date('produccionFecha', { mode: 'string' }),
+  // Entregables del proveedor verificados (para poder resolver un ticket
+  // que depende de un proveedor).
+  proveedorEntregablesVerificados: boolean('proveedorEntregablesVerificados').notNull().default(false),
+
+  // --- P2: análisis de causa y reincidencia ---
+  analisisCausa: text('analisisCausa'), // obligatorio para Críticos y reincidentes antes de resolver
+  reincidente: boolean('reincidente').notNull().default(false), // casilla manual
+});
+
+// Aprobaciones de solicitudes de desarrollo y mejora. Cada una guarda quién
+// aprobó, cuándo y el comentario o evidencia. Solo de alta: no se modifica ni
+// se borra (trigger en drizzle/0006); si hay un error se registra otra.
+//   AREA = gerente del área solicitante (valida la necesidad)
+//   TI   = Gerente de TI (alcance, prioridad y puesta en producción)
+//   GG   = Gerencia General (solo si hay costo)
+export const aprobaciones = pgTable('aprobaciones', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  ticketId: uuid('ticketId')
+    .notNull()
+    .references(() => tickets.id),
+  tipo: varchar('tipo', { length: 10 }).notNull(),
+  aprobadoPor: varchar('aprobadoPor', { length: 255 }).notNull(), // nombre de quien aprobó
+  fechaAprobacion: date('fechaAprobacion', { mode: 'string' }).notNull(),
+  comentario: text('comentario').notNull(), // evidencia: "aprobó por correo del 5/11, adjunto"
+  registradoPorId: uuid('registradoPorId')
+    .notNull()
+    .references(() => usuarios.id),
+  fechaRegistro: timestamp('fechaRegistro').notNull().defaultNow(),
 });
 
 // Parámetros editables desde el panel (horario laboral, plazos). Cada fila
@@ -230,6 +273,12 @@ export const ticketsRelations = relations(tickets, ({ one, many }) => ({
     relationName: 'continuacion',
   }),
   continuaciones: many(tickets, { relationName: 'continuacion' }),
+  aprobaciones: many(aprobaciones),
+}));
+
+export const aprobacionesRelations = relations(aprobaciones, ({ one }) => ({
+  ticket: one(tickets, { fields: [aprobaciones.ticketId], references: [tickets.id] }),
+  registradoPor: one(usuarios, { fields: [aprobaciones.registradoPorId], references: [usuarios.id] }),
 }));
 
 export const mensajesChatRelations = relations(mensajesChat, ({ one }) => ({
