@@ -7,6 +7,7 @@ import {
   bigint,
   timestamp,
   varchar,
+  date,
 } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 
@@ -88,6 +89,25 @@ export const tickets = pgTable('tickets', {
   proveedorNombre: varchar('proveedorNombre', { length: 255 }),
   proveedorFechaCompromiso: timestamp('proveedorFechaCompromiso'),
   proveedorNotas: text('proveedorNotas'), // hitos y verificación de entregables
+  // Primer mensaje al usuario por parte del equipo, o primer paso a En
+  // Proceso: lo que mide el plazo de primera respuesta (PR-INF-03).
+  fechaPrimeraRespuesta: timestamp('fechaPrimeraRespuesta'),
+  // Obligatorio para cerrar un ticket Crítico que superó su plazo de resolución.
+  motivoDesvio: text('motivoDesvio'),
+});
+
+// Parámetros editables desde el panel (horario laboral, plazos). Cada fila
+// guarda un JSON; ver lib/config/service.ts para las claves y los valores
+// por defecto.
+export const configuracion = pgTable('configuracion', {
+  clave: varchar('clave', { length: 100 }).primaryKey(),
+  valor: text('valor').notNull(),
+  fechaActualizacion: timestamp('fechaActualizacion').notNull().defaultNow(),
+});
+
+export const feriados = pgTable('feriados', {
+  fecha: date('fecha', { mode: 'string' }).primaryKey(),
+  nombre: varchar('nombre', { length: 255 }).notNull(),
 });
 
 export const comentarios = pgTable('comentarios', {

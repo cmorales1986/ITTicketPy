@@ -12,6 +12,7 @@ import { formatDistanceToNow } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { useRouter } from 'next/navigation';
 import { ESTADO, transicionPermitida } from '@/lib/tickets/estados';
+import { ESTADO_PLAZO_COLORS, ESTADO_PLAZO_LABELS } from '@/lib/tickets/plazos';
 
 const COLUMNAS = [
   { id: 1, label: 'Nuevo', color: 'border-yellow-500' },
@@ -77,7 +78,15 @@ export default function KanbanPage() {
     );
 
     try {
-      await api.put(`/tickets/${draggableId}`, { estado: nuevoEstado, ...extra });
+      try {
+        await api.put(`/tickets/${draggableId}`, { estado: nuevoEstado, ...extra });
+      } catch (err: any) {
+        // Crítico fuera de plazo: hay que explicar el desvío para cerrarlo.
+        if (err.response?.data?.code !== 'MOTIVO_DESVIO') throw err;
+        const motivoDesvio = window.prompt(`${err.response.data.message}:`)?.trim();
+        if (!motivoDesvio) throw err;
+        await api.put(`/tickets/${draggableId}`, { estado: nuevoEstado, ...extra, motivoDesvio });
+      }
       toast.success(`Ticket movido a ${ESTADO_LABELS[nuevoEstado]}`);
     } catch (err: any) {
       toast.error(err.response?.data?.message || 'Error al actualizar ticket');
@@ -197,6 +206,17 @@ export default function KanbanPage() {
                                   })}
                                 </span>
                               </div>
+
+                              {ticket.sla && ticket.estado <= 3 && ticket.sla.resumen !== 'no_aplica' && (
+                                <div className="mt-2">
+                                  <span
+                                    title={`Primera respuesta: ${ESTADO_PLAZO_LABELS[ticket.sla.respuesta.estado]} · Resolución: ${ESTADO_PLAZO_LABELS[ticket.sla.resolucion.estado]}`}
+                                    className={`text-xs px-2 py-0.5 rounded-full font-medium ${ESTADO_PLAZO_COLORS[ticket.sla.resumen]}`}
+                                  >
+                                    {ESTADO_PLAZO_LABELS[ticket.sla.resumen]}
+                                  </span>
+                                </div>
+                              )}
 
                               {ticket.dependeProveedor && (
                                 <div className="mt-2">

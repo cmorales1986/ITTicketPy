@@ -1,3 +1,25 @@
+export type EstadoPlazo =
+  | 'en_plazo'
+  | 'por_vencer'
+  | 'vencido'
+  | 'cumplido'
+  | 'cumplido_tarde'
+  | 'sin_dato'
+  | 'no_aplica';
+
+export interface Medicion {
+  estado: EstadoPlazo;
+  limite: string | null;
+  usadosMin: number | null;
+  plazoMin: number | null;
+}
+
+export interface Sla {
+  respuesta: Medicion;
+  resolucion: Medicion;
+  resumen: EstadoPlazo;
+}
+
 export interface Empresa {
   id: string;
   nombre: string;
@@ -60,6 +82,9 @@ export interface Ticket {
   proveedorNombre?: string | null;
   proveedorFechaCompromiso?: string | null;
   proveedorNotas?: string | null;
+  fechaPrimeraRespuesta?: string | null;
+  motivoDesvio?: string | null;
+  sla?: Sla;
   usuarioId: string;
   usuario?: Usuario;
   tecnicoAsignadoId?: string;

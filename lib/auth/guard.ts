@@ -31,3 +31,18 @@ export async function requireTecnicoOAdmin(): Promise<
   }
   return { session, error: null };
 }
+
+// Solo admins (rol 2) o admin+técnico (rol 3): configuración del sistema.
+export async function requireAdmin(): Promise<
+  { session: SessionPayload; error: null } | { session: null; error: NextResponse }
+> {
+  const { session, error } = await requireSession();
+  if (error) return { session: null, error };
+  if (session.rol < 2) {
+    return {
+      session: null,
+      error: NextResponse.json({ message: 'No autorizado' }, { status: 403 }),
+    };
+  }
+  return { session, error: null };
+}

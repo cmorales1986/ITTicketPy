@@ -22,6 +22,8 @@ const updateTicketSchema = z.object({
   proveedorNombre: z.string().max(255).optional(),
   proveedorFechaCompromiso: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).or(z.literal('')).optional(),
   proveedorNotas: z.string().optional(),
+  // Obligatorio para cerrar un ticket Crítico fuera de plazo.
+  motivoDesvio: z.string().optional(),
 });
 
 export async function GET(
@@ -65,7 +67,7 @@ export async function PUT(
     ticket = await updateTicket(id, parsed.data, session.sub);
   } catch (err) {
     if (err instanceof TicketReglaError) {
-      return NextResponse.json({ message: err.message }, { status: 400 });
+      return NextResponse.json({ message: err.message, code: err.code }, { status: 400 });
     }
     throw err;
   }

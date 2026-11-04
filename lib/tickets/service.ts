@@ -8,6 +8,8 @@ import {
   notificarNuevoMensajeChat,
 } from '@/lib/notifications/whatsapp';
 import { ESTADO, ESTADOS_FINALES, transicionPermitida } from '@/lib/tickets/estados';
+import { calcularSla, type ConfigPlazos, type TicketParaSla } from '@/lib/tickets/plazos';
+import { obtenerConfigPlazos } from '@/lib/config/service';
 
 const ESTADO_LABELS: Record<number, string> = {
   1: 'Nuevo',
@@ -19,7 +21,22 @@ const ESTADO_LABELS: Record<number, string> = {
 
 // Error de regla de negocio (transición no permitida, falta un dato
 // obligatorio). La API lo traduce a 400 con el mensaje tal cual.
-export class TicketReglaError extends Error {}
+export class TicketReglaError extends Error {
+  // Código opcional para que la UI sepa pedir el dato que falta (ej.
+  // MOTIVO_DESVIO) en vez de solo mostrar el mensaje.
+  constructor(
+    message: string,
+    public code?: string,
+  ) {
+    super(message);
+  }
+}
+
+// Agrega a cada ticket su medición de plazos (primera respuesta y
+// resolución, en horas hábiles). Se calcula al leer: nunca queda desfasada.
+function conSla<T extends TicketParaSla>(ticket: T, cfg: ConfigPlazos, ahora = new Date()) {
+  return { ...ticket, sla: calcularSla(ticket, cfg, ahora) };
+}
 
 const PRIORIDAD_LABELS: Record<number, string> = {
   1: 'Baja',
@@ -57,6 +74,7 @@ export interface UpdateTicketInput {
   proveedorNombre?: string;
   proveedorFechaCompromiso?: string; // fecha ISO (YYYY-MM-DD)
   proveedorNotas?: string;
+  motivoDesvio?: string;
 }
 
 async function registrarHistorial(
@@ -80,6 +98,15 @@ async function registrarHistorial(
 // soloDeUsuarioId: un cliente (rol 0) solo debe ver sus propios tickets acá
 // — técnicos/admins pasan undefined para ver todo. Ver requireTecnicoOAdmin.
 export async function findAllTickets(estado?: number, prioridad?: number, soloDeUsuarioId?: string) {
+  const [lista, cfg] = await Promise.all([
+    findAllTicketsSinSla(estado, prioridad, soloDeUsuarioId),
+    obtenerConfigPlazos(),
+  ]);
+  const ahora = new Date();
+  return lista.map((t) => conSla(t, cfg, ahora));
+}
+
+async function findAllTicketsSinSla(estado?: number, prioridad?: number, soloDeUsuarioId?: string) {
   return db.query.tickets.findMany({
     where: (t, { and, eq: eqOp }) =>
       and(
@@ -98,6 +125,12 @@ export async function findAllTickets(estado?: number, prioridad?: number, soloDe
 }
 
 export async function findTicketById(id: string) {
+  const ticket = await cargarTicket(id);
+  if (!ticket) return ticket;
+  return conSla(ticket, await obtenerConfigPlazos());
+}
+
+async function cargarTicket(id: string) {
   return db.query.tickets.findFirst({
     where: eq(tickets.id, id),
     with: {
@@ -134,6 +167,12 @@ export interface FiltrosReporte {
 // fechas, con los datos que suelen pedir para revisar actividad (quién lo
 // reportó, quién lo atendió, cuánto tardó, cómo lo calificó el cliente).
 export async function findTicketsParaReporte(filtros: FiltrosReporte) {
+  const [lista, cfg] = await Promise.all([findTicketsParaReporteSinSla(filtros), obtenerConfigPlazos()]);
+  const ahora = new Date();
+  return lista.map((t) => conSla(t, cfg, ahora));
+}
+
+async function findTicketsParaReporteSinSla(filtros: FiltrosReporte) {
   return db.query.tickets.findMany({
     where: (t, { and: andOp }) =>
       andOp(
@@ -225,7 +264,7 @@ export async function createTicket(
 }
 
 export async function updateTicket(id: string, dto: UpdateTicketInput, usuarioId: string) {
-  const ticket = await findTicketById(id);
+  const ticket = await cargarTicket(id);
   if (!ticket) return null;
 
   const cambiaEstado = !!dto.estado && dto.estado !== ticket.estado;
@@ -255,6 +294,27 @@ export async function updateTicket(id: string, dto: UpdateTicketInput, usuarioId
   if (dto.dependeProveedor === true && !proveedorNuevo) {
     throw new TicketReglaError('Indicá el proveedor al marcar el ticket como dependiente de un proveedor');
   }
+  // Un ticket Crítico que superó su plazo de resolución no se puede cerrar
+  // sin explicar el desvío.
+  const motivoDesvio = dto.motivoDesvio?.trim();
+  if (cambiaEstado && dto.estado === ESTADO.CERRADO) {
+    const prioridadFinal = dto.prioridad ?? ticket.prioridad;
+    if (prioridadFinal === 4 && ticket.tipo === 1 && !(motivoDesvio || ticket.motivoDesvio)) {
+      const cfg = await obtenerConfigPlazos();
+      const sla = calcularSla({ ...ticket, prioridad: prioridadFinal }, cfg);
+      if (sla.resolucion.estado === 'vencido' || sla.resolucion.estado === 'cumplido_tarde') {
+        throw new TicketReglaError(
+          'Este ticket Crítico superó su plazo de resolución: indicá el motivo del desvío para cerrarlo',
+          'MOTIVO_DESVIO',
+        );
+      }
+    }
+  }
+
+  if (motivoDesvio && motivoDesvio !== ticket.motivoDesvio) {
+    await registrarHistorial(id, usuarioId, 'DESVIO', `Motivo del desvío: ${motivoDesvio}`);
+  }
+
   if (cambiaProveedor) {
     await registrarHistorial(
       id,
@@ -307,6 +367,8 @@ export async function updateTicket(id: string, dto: UpdateTicketInput, usuarioId
   // a la transición; si no, se ignoran para no pisar lo ya registrado.
   delete updateValues.solucion;
   delete updateValues.motivoCancelacion;
+  delete updateValues.motivoDesvio;
+  if (motivoDesvio) updateValues.motivoDesvio = motivoDesvio;
   if (cambiaEstado && dto.estado === ESTADO.RESUELTO) updateValues.solucion = solucion;
   if (cambiaEstado && dto.estado === ESTADO.CANCELADO) updateValues.motivoCancelacion = motivoCancelacion;
 
@@ -317,6 +379,10 @@ export async function updateTicket(id: string, dto: UpdateTicketInput, usuarioId
       // Reapertura / objeción: vuelve a estar en curso. La fecha anterior
       // queda en el historial.
       updateValues.fechaResolucion = null;
+    }
+    // El primer paso a En Proceso cuenta como primera respuesta.
+    if (dto.estado === ESTADO.EN_PROCESO && !ticket.fechaPrimeraRespuesta) {
+      updateValues.fechaPrimeraRespuesta = new Date();
     }
   }
 
@@ -334,7 +400,7 @@ export async function updateTicket(id: string, dto: UpdateTicketInput, usuarioId
 }
 
 export async function asignarTicket(id: string, tecnicoId: string, usuarioId: string) {
-  const ticket = await findTicketById(id);
+  const ticket = await cargarTicket(id);
   if (!ticket) return null;
 
   const anterior = ticket.tecnicoAsignado?.nombre ?? 'Sin asignar';
@@ -344,7 +410,11 @@ export async function asignarTicket(id: string, tecnicoId: string, usuarioId: st
   const pasaAEnProceso = ticket.estado === ESTADO.NUEVO;
   await db
     .update(tickets)
-    .set({ tecnicoAsignadoId: tecnicoId, ...(pasaAEnProceso ? { estado: ESTADO.EN_PROCESO } : {}) })
+    .set({
+      tecnicoAsignadoId: tecnicoId,
+      ...(pasaAEnProceso ? { estado: ESTADO.EN_PROCESO } : {}),
+      ...(pasaAEnProceso && !ticket.fechaPrimeraRespuesta ? { fechaPrimeraRespuesta: new Date() } : {}),
+    })
     .where(eq(tickets.id, id));
 
   if (pasaAEnProceso) {
@@ -423,7 +493,7 @@ export async function agregarComentario(ticketId: string, usuarioId: string, con
 // WhatsApp; cuando lo trae el propio cliente (por WhatsApp, vía el webhook)
 // no hay que reenviarle su propio mensaje.
 export async function agregarMensajeChat(ticketId: string, usuarioId: string, contenido: string) {
-  const ticket = await findTicketById(ticketId);
+  const ticket = await cargarTicket(ticketId);
   if (!ticket) return null;
 
   const [mensaje] = await db
@@ -433,9 +503,19 @@ export async function agregarMensajeChat(ticketId: string, usuarioId: string, co
 
   await registrarHistorial(ticketId, usuarioId, 'CHAT', 'Mensaje de chat agregado');
 
-  if (usuarioId !== ticket.usuarioId && ticket.usuario?.numeroWhatsApp) {
+  if (usuarioId !== ticket.usuarioId) {
     const autor = await db.query.usuarios.findFirst({ where: eq(usuarios.id, usuarioId) });
-    if (autor) {
+
+    // Primer mensaje del equipo (técnico/admin) al usuario = primera
+    // respuesta del ticket. Solo la primera vez.
+    if (autor && autor.rol >= 1 && !ticket.fechaPrimeraRespuesta) {
+      await db
+        .update(tickets)
+        .set({ fechaPrimeraRespuesta: new Date() })
+        .where(and(eq(tickets.id, ticketId), isNull(tickets.fechaPrimeraRespuesta)));
+    }
+
+    if (autor && ticket.usuario?.numeroWhatsApp) {
       await notificarNuevoMensajeChat(ticket.usuario.numeroWhatsApp, ticket.numero, autor.nombre, contenido);
     }
   }

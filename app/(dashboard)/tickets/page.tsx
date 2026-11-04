@@ -11,6 +11,7 @@ import { formatDistanceToNow } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { toast } from 'sonner';
 import { useAuthStore } from '@/store/auth.store';
+import { ESTADO_PLAZO_COLORS, ESTADO_PLAZO_LABELS } from '@/lib/tickets/plazos';
 import NuevoTicketModal from '@/components/tickets/NuevoTicketModal';
 import Estrellas from '@/components/tickets/Estrellas';
 
@@ -182,6 +183,11 @@ export default function TicketsPage() {
                     <span className={`text-xs px-2 py-1 rounded-full font-medium ${ESTADO_COLORS[ticket.estado]}`}>
                       {ESTADO_LABELS[ticket.estado]}
                     </span>
+                    {ticket.sla && ticket.estado <= 3 && ['vencido', 'por_vencer'].includes(ticket.sla.resumen) && (
+                      <span className={`ml-2 text-xs px-2 py-1 rounded-full font-medium ${ESTADO_PLAZO_COLORS[ticket.sla.resumen]}`}>
+                        {ESTADO_PLAZO_LABELS[ticket.sla.resumen]}
+                      </span>
+                    )}
                   </td>
                   <td className="px-4 py-3">
                     {ticket.tecnicoAsignado ? (

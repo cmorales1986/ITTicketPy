@@ -24,6 +24,7 @@ import {
   CANAL_LABELS,
   URGENCIA_LABELS,
 } from "@/lib/tickets/estados";
+import { ESTADO_PLAZO_COLORS, ESTADO_PLAZO_LABELS, formatearMinutos } from "@/lib/tickets/plazos";
 import Timeline from "@/components/tickets/Timeline";
 import Estrellas from "@/components/tickets/Estrellas";
 import { useAuthStore } from "@/store/auth.store";
@@ -111,11 +112,20 @@ export default function TicketDetallePage() {
   const cambiarEstado = async (estado: number, texto?: string) => {
     setActualizando(true);
     try {
-      await api.put(`/tickets/${id}`, {
+      const cuerpo = {
         estado,
         ...(estado === ESTADO.RESUELTO ? { solucion: texto } : {}),
         ...(estado === ESTADO.CANCELADO ? { motivoCancelacion: texto } : {}),
-      });
+      };
+      try {
+        await api.put(`/tickets/${id}`, cuerpo);
+      } catch (err: any) {
+        // Crítico fuera de plazo: hay que explicar el desvío para cerrarlo.
+        if (err.response?.data?.code !== "MOTIVO_DESVIO") throw err;
+        const motivoDesvio = window.prompt(`${err.response.data.message}:`)?.trim();
+        if (!motivoDesvio) throw err;
+        await api.put(`/tickets/${id}`, { ...cuerpo, motivoDesvio });
+      }
       setEstadoPendiente(null);
       setTextoEstado("");
       await fetchData();
@@ -317,6 +327,46 @@ export default function TicketDetallePage() {
               {ticket.descripcion}
             </p>
           </div>
+
+          {ticket.sla && (
+            <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+              <h3 className="text-white font-medium mb-3">Plazos (horas hábiles)</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
+                {(
+                  [
+                    ["Primera respuesta", ticket.sla.respuesta],
+                    ["Resolución", ticket.sla.resolucion],
+                  ] as const
+                ).map(([titulo, m]) => (
+                  <div key={titulo} className="space-y-1">
+                    <p className="text-gray-500 text-xs">{titulo}</p>
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${ESTADO_PLAZO_COLORS[m.estado]}`}>
+                      {ESTADO_PLAZO_LABELS[m.estado]}
+                    </span>
+                    {m.plazoMin !== null && m.estado !== "no_aplica" && (
+                      <p className="text-gray-400 text-xs">
+                        {m.usadosMin !== null ? `${formatearMinutos(m.usadosMin)} de ` : "Plazo: "}
+                        {formatearMinutos(m.plazoMin)}
+                        {m.limite && !["cumplido", "cumplido_tarde"].includes(m.estado)
+                          ? ` · vence ${format(new Date(m.limite), "dd/MM HH:mm")}`
+                          : ""}
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+              {ticket.tipo !== 1 && (
+                <p className="text-gray-600 text-xs mt-3">
+                  El plazo de resolución de desarrollo y mejora se define en la evaluación.
+                </p>
+              )}
+              {ticket.motivoDesvio && (
+                <p className="text-gray-400 text-xs mt-3 border-t border-gray-800 pt-3">
+                  <span className="text-gray-500">Motivo del desvío:</span> {ticket.motivoDesvio}
+                </p>
+              )}
+            </div>
+          )}
 
           {ticket.solucion && (
             <div className="bg-gray-900 border border-green-900/50 rounded-xl p-5">
