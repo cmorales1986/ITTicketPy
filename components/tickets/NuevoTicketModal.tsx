@@ -2,14 +2,21 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useForm } from 'react-hook-form';
+import { useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
 import api from '@/lib/axios';
 import { Categoria, Ticket, Usuario } from '@/types';
 import { X, Loader2 } from 'lucide-react';
-import { TIPO_LABELS, URGENCIA_LABELS } from '@/lib/tickets/estados';
+import { LUGAR_LABELS, SISTEMAS_AFECTADOS, TIPO_LABELS, TIPOS_ORDEN, URGENCIA_LABELS } from '@/lib/tickets/estados';
+
+// Un sistema guardado como "Otro: detalle" vuelve a separarse en el select y
+// el campo de detalle.
+function separarSistema(valor?: string | null): { sistemaModulo: string; sistemaOtro: string } {
+  if (valor?.startsWith('Otro: ')) return { sistemaModulo: 'Otro', sistemaOtro: valor.slice('Otro: '.length) };
+  return { sistemaModulo: valor ?? '', sistemaOtro: '' };
+}
 
 const schema = z.object({
   titulo: z.string().min(5, 'Mínimo 5 caracteres'),
@@ -19,10 +26,25 @@ const schema = z.object({
   usuarioId: z.string().optional(),
   // PR-INF-03
   canal: z.enum(['CORREO', 'LLAMADA']).optional(),
-  tipo: z.number().min(1).max(3),
-  sistemaModulo: z.string().min(1, 'Indicá el sistema o módulo afectado'),
+  tipo: z.number().min(1).max(5),
+  sistemaModulo: z.string().min(1, 'Elegí el sistema o servicio afectado'),
+  sistemaOtro: z.string().optional(),
   urgencia: z.number().min(1).max(4),
+  // Solo cuando el equipo carga el ticket a mano (correo o llamada).
+  lugarOrigen: z.enum(['OFICINA', 'GRANJA']).optional(),
+  fechaRecepcion: z.string().optional(),
+}).superRefine((d, ctx) => {
+  if (d.sistemaModulo === 'Otro' && !d.sistemaOtro?.trim()) {
+    ctx.addIssue({ code: 'custom', path: ['sistemaOtro'], message: 'Indicá cuál' });
+  }
 });
+
+// Valor para <input type="datetime-local"> con la hora actual.
+function ahoraLocal(): string {
+  const d = new Date();
+  d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+  return d.toISOString().slice(0, 16);
+}
 
 type FormData = z.infer<typeof schema>;
 
@@ -43,10 +65,12 @@ export default function NuevoTicketModal({ open, onClose, categorias, onCreated,
   const [loading, setLoading] = useState(false);
   const [usuarios, setUsuarios] = useState<Usuario[]>([]);
 
-  const { register, handleSubmit, reset, formState: { errors } } = useForm<FormData>({
+  const { register, handleSubmit, reset, control, formState: { errors } } = useForm<FormData>({
     resolver: zodResolver(schema),
-    defaultValues: { prioridad: 2, tipo: 1, urgencia: 2, canal: 'LLAMADA' },
+    defaultValues: { prioridad: 2, tipo: 1, urgencia: 2, canal: 'LLAMADA', sistemaModulo: '', lugarOrigen: 'OFICINA', fechaRecepcion: ahoraLocal() },
   });
+
+  const sistemaElegido = useWatch({ control, name: 'sistemaModulo' });
 
   useEffect(() => {
     if (open && ticketAnterior) {
@@ -57,8 +81,10 @@ export default function NuevoTicketModal({ open, onClose, categorias, onCreated,
         categoriaId: ticketAnterior.categoriaId ?? '',
         canal: 'LLAMADA',
         tipo: ticketAnterior.tipo,
-        sistemaModulo: ticketAnterior.sistemaModulo ?? '',
+        ...separarSistema(ticketAnterior.sistemaModulo),
         urgencia: ticketAnterior.urgencia ?? 2,
+        lugarOrigen: (ticketAnterior.lugarOrigen as 'OFICINA' | 'GRANJA' | null) ?? 'OFICINA',
+        fechaRecepcion: ahoraLocal(),
       });
     }
   }, [open, ticketAnterior, reset]);
@@ -81,6 +107,10 @@ export default function NuevoTicketModal({ open, onClose, categorias, onCreated,
         ticketAnteriorId: ticketAnterior?.id,
         // Los clientes no eligen canal: el servidor lo registra como PORTAL.
         canal: puedeElegirUsuario ? data.canal : undefined,
+        sistemaModulo: data.sistemaModulo === 'Otro' ? `Otro: ${data.sistemaOtro!.trim()}` : data.sistemaModulo,
+        sistemaOtro: undefined,
+        lugarOrigen: puedeElegirUsuario ? data.lugarOrigen : undefined,
+        fechaRecepcion: puedeElegirUsuario && data.fechaRecepcion ? new Date(data.fechaRecepcion).toISOString() : undefined,
       });
       toast.success('Ticket creado correctamente');
       reset();
@@ -201,8 +231,8 @@ export default function NuevoTicketModal({ open, onClose, categorias, onCreated,
                 {...register('tipo', { valueAsNumber: true })}
                 className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-blue-500 text-sm"
               >
-                {Object.entries(TIPO_LABELS).map(([v, l]) => (
-                  <option key={v} value={v}>{l}</option>
+                {TIPOS_ORDEN.map((v) => (
+                  <option key={v} value={v}>{TIPO_LABELS[v]}</option>
                 ))}
               </select>
             </div>
@@ -220,14 +250,53 @@ export default function NuevoTicketModal({ open, onClose, categorias, onCreated,
           </div>
 
           <div>
-            <label className="text-sm text-gray-400 mb-1 block">Sistema / módulo afectado *</label>
-            <input
+            <label className="text-sm text-gray-400 mb-1 block">Sistema o servicio afectado *</label>
+            <select
               {...register('sistemaModulo')}
-              placeholder="Ej: SAP B1 — Compras"
-              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 text-sm"
-            />
+              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-blue-500 text-sm"
+            >
+              <option value="">Elegí uno…</option>
+              {SISTEMAS_AFECTADOS.map((s) => (
+                <option key={s} value={s}>{s}</option>
+              ))}
+            </select>
             {errors.sistemaModulo && <p className="text-red-400 text-xs mt-1">{errors.sistemaModulo.message}</p>}
+            {sistemaElegido === 'Otro' && (
+              <input
+                {...register('sistemaOtro')}
+                placeholder="¿Cuál?"
+                className="mt-2 w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 text-sm"
+              />
+            )}
+            {errors.sistemaOtro && <p className="text-red-400 text-xs mt-1">{errors.sistemaOtro.message}</p>}
           </div>
+
+          {puedeElegirUsuario && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="text-sm text-gray-400 mb-1 block">Lugar de origen *</label>
+                <select
+                  {...register('lugarOrigen')}
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-blue-500 text-sm"
+                >
+                  {Object.entries(LUGAR_LABELS).map(([v, l]) => (
+                    <option key={v} value={v}>{l}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="text-sm text-gray-400 mb-1 block">Fecha y hora de recepción *</label>
+                <input
+                  type="datetime-local"
+                  {...register('fechaRecepcion')}
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-blue-500 text-sm"
+                />
+              </div>
+              <p className="text-gray-600 text-xs sm:col-span-2">
+                Los plazos se cuentan desde la recepción del reporte y con el horario del lugar de origen.
+              </p>
+            </div>
+          )}
 
           {/* Botones */}
           <div className="flex gap-3 pt-2">

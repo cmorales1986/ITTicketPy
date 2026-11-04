@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { requireSession } from '@/lib/auth/guard';
 import { findAllTickets, createTicket } from '@/lib/tickets/service';
 import { optionalUuid } from '@/lib/validation';
-import { CANAL } from '@/lib/tickets/estados';
+import { CANAL, LUGAR, sistemaAfectadoValido } from '@/lib/tickets/estados';
 
 const createTicketSchema = z.object({
   titulo: z.string().min(1),
@@ -17,8 +17,13 @@ const createTicketSchema = z.object({
   // o llamada; los de WhatsApp los crea el bot. Un cliente (rol 0) no elige:
   // su ticket queda como PORTAL.
   canal: z.enum([CANAL.CORREO, CANAL.LLAMADA]).optional(),
-  tipo: z.number().min(1).max(3).default(1),
-  sistemaModulo: z.string().min(1).max(255),
+  tipo: z.number().int().min(1).max(5).default(1),
+  // Sistema o servicio afectado: lista cerrada (o "Otro: detalle").
+  sistemaModulo: z.string().min(1).max(255).refine(sistemaAfectadoValido, 'Sistema o servicio inválido'),
+  // Lugar de origen: define el horario con el que se cuentan los plazos.
+  lugarOrigen: z.enum([LUGAR.OFICINA, LUGAR.GRANJA]).optional(),
+  // Cuándo se recibió el reporte (ISO). Los plazos corren desde acá.
+  fechaRecepcion: z.string().datetime({ offset: true }).optional(),
   urgencia: z.number().min(1).max(4),
   // Continuación de un ticket anterior (reapertura fuera de plazo).
   ticketAnteriorId: optionalUuid,
@@ -63,7 +68,22 @@ export async function POST(request: NextRequest) {
     }
     canal = canalElegido;
   }
-  const dto = { ...resto, canal };
+  // Los tickets cargados a mano (correo o llamada) exigen el lugar de origen y
+  // la fecha y hora de recepción: de ahí salen los plazos.
+  let fechaRecepcion: Date | undefined;
+  if (session.rol >= 1) {
+    if (!resto.lugarOrigen) {
+      return NextResponse.json({ message: 'Indicá el lugar de origen (oficina o granja)' }, { status: 400 });
+    }
+    if (!resto.fechaRecepcion) {
+      return NextResponse.json({ message: 'Indicá la fecha y hora de recepción del reporte' }, { status: 400 });
+    }
+    fechaRecepcion = new Date(resto.fechaRecepcion);
+    if (fechaRecepcion.getTime() > Date.now() + 5 * 60 * 1000) {
+      return NextResponse.json({ message: 'La fecha de recepción no puede ser futura' }, { status: 400 });
+    }
+  }
+  const dto = { ...resto, canal, fechaRecepcion };
 
   let usuarioTicket = session.sub;
   if (reportanteId && reportanteId !== session.sub) {

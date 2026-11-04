@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { requireSession, requireTecnicoOAdmin } from '@/lib/auth/guard';
 import { findTicketById, updateTicket, TicketReglaError } from '@/lib/tickets/service';
 import { optionalUuid } from '@/lib/validation';
+import { LUGAR, sistemaAfectadoValido } from '@/lib/tickets/estados';
 
 const updateTicketSchema = z.object({
   titulo: z.string().optional(),
@@ -11,8 +12,9 @@ const updateTicketSchema = z.object({
   estado: z.number().min(1).max(5).optional(),
   categoriaId: optionalUuid,
   empresaId: optionalUuid,
-  tipo: z.number().min(1).max(3).optional(),
-  sistemaModulo: z.string().max(255).optional(),
+  tipo: z.number().int().min(1).max(5).optional(),
+  sistemaModulo: z.string().max(255).refine(sistemaAfectadoValido, 'Sistema o servicio inválido').optional(),
+  lugarOrigen: z.enum([LUGAR.OFICINA, LUGAR.GRANJA]).optional(),
   urgencia: z.number().min(1).max(4).optional(),
   // Obligatorios al pasar a Resuelto / Cancelado (se validan en el servicio).
   solucion: z.string().optional(),

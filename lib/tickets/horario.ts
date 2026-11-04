@@ -22,6 +22,13 @@ export const HORARIO_POR_DEFECTO: Horario = {
   hasta: '17:30',
 };
 
+// Granja: lunes a domingo, de 7:00 a 18:00.
+export const HORARIO_GRANJA_POR_DEFECTO: Horario = {
+  dias: [0, 1, 2, 3, 4, 5, 6],
+  desde: '07:00',
+  hasta: '18:00',
+};
+
 const MAX_DIAS = 3660; // tope de seguridad para los bucles (10 años)
 const MS_DIA = 24 * 60 * 60 * 1000;
 
@@ -135,4 +142,18 @@ export function sumarMinutosHabiles(inicio: Date, minutos: number, cfg: ConfigHo
     cursor = 0;
   }
   return null;
+}
+
+// Límites de un rango de días ("YYYY-MM-DD", ambos incluidos) en hora de
+// Paraguay: desde el primer instante de `desde` hasta el primer instante del
+// día siguiente a `hasta` (excluido).
+export function limitesDeRango(desde: string, hasta: string): { desde: Date; hasta: Date } {
+  return { desde: deLocal(desde, 0), hasta: deLocal(sumarDias(hasta, 1), 0) };
+}
+
+// Excel guarda las fechas sin zona horaria: devuelve un Date cuyos campos UTC
+// son la hora local de Paraguay, para que la planilla muestre esa hora.
+export function aFechaExcel(d: Date): Date {
+  const l = aLocal(d);
+  return new Date(Date.parse(`${l.fecha}T00:00:00Z`) + l.minutos * 60000);
 }

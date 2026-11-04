@@ -85,6 +85,11 @@ export interface Ticket {
   fechaPrimeraRespuesta?: string | null;
   motivoDesvio?: string | null;
   fechaCierre?: string | null;
+  lugarOrigen?: string | null; // OFICINA | GRANJA
+  fechaRecepcion?: string | null;
+  conformidadFecha?: string | null;
+  conformidadCanal?: string | null;
+  conformidadNota?: string | null;
   reaperturas: number;
   cerradoSinRespuesta: boolean;
   ticketAnteriorId?: string | null;

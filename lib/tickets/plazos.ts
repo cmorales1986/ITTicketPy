@@ -6,28 +6,39 @@
 import {
   type ConfigHorario,
   type Horario,
-  HORARIO_POR_DEFECTO,
   jornadaMinutos,
   minutosHabilesEntre,
   sumarMinutosHabiles,
 } from './horario';
+import { TIPOS_SIN_PLAZO_RESOLUCION } from './estados';
+
+// Un plazo se expresa en horas hábiles ('h') o en días hábiles ('d'). Un día
+// hábil es una jornada completa del horario del lugar de origen del ticket
+// (10 h en la oficina, 11 h en la granja), por eso se guarda la unidad y no
+// los minutos.
+export interface Cantidad {
+  valor: number;
+  unidad: 'h' | 'd';
+}
 
 export interface PlazoPrioridad {
-  primeraMin: number; // primera respuesta, en minutos hábiles
-  resolucionMin: number; // resolución objetivo, en minutos hábiles
+  primera: Cantidad; // primera respuesta
+  resolucion: Cantidad; // resolución objetivo
 }
 
 export type PlazosPorPrioridad = Record<number, PlazoPrioridad>;
 
-// Un "día hábil" es una jornada completa (7:30 a 17:30 = 600 min).
-export function plazosPorDefecto(horario: Horario = HORARIO_POR_DEFECTO): PlazosPorPrioridad {
-  const dia = jornadaMinutos(horario);
+export function plazosPorDefecto(): PlazosPorPrioridad {
   return {
-    4: { primeraMin: 60, resolucionMin: 240 }, // Crítica: 1 h / 4 h
-    3: { primeraMin: 120, resolucionMin: dia }, // Alta: 2 h / 1 día hábil
-    2: { primeraMin: 240, resolucionMin: dia * 3 }, // Media: 4 h / 3 días hábiles
-    1: { primeraMin: dia, resolucionMin: dia * 5 }, // Baja: 1 día hábil / 5 días hábiles
+    4: { primera: { valor: 1, unidad: 'h' }, resolucion: { valor: 4, unidad: 'h' } }, // Crítica
+    3: { primera: { valor: 2, unidad: 'h' }, resolucion: { valor: 1, unidad: 'd' } }, // Alta
+    2: { primera: { valor: 4, unidad: 'h' }, resolucion: { valor: 3, unidad: 'd' } }, // Media
+    1: { primera: { valor: 1, unidad: 'd' }, resolucion: { valor: 5, unidad: 'd' } }, // Baja
   };
+}
+
+export function cantidadEnMinutos(c: Cantidad, horario: Horario): number {
+  return c.unidad === 'h' ? c.valor * 60 : c.valor * jornadaMinutos(horario);
 }
 
 // Cierre sin respuesta del usuario y ventana de reapertura, en días hábiles.
@@ -38,9 +49,22 @@ export interface ParametrosCierre {
 
 export const PARAMETROS_CIERRE_POR_DEFECTO: ParametrosCierre = { diasCierre: 3, diasReapertura: 5 };
 
+// `horario` es el de la oficina (Asunción); `horarioGranja` el de la granja.
+// Los feriados son una sola lista para ambos.
 export interface ConfigPlazos extends ConfigHorario {
+  horarioGranja: Horario;
   plazos: PlazosPorPrioridad;
   cierre: ParametrosCierre;
+}
+
+// Horario con el que se cuentan los plazos de un ticket según su lugar de
+// origen. Si no tiene lugar registrado (tickets históricos, bot de WhatsApp)
+// se usa el de la oficina.
+export function horarioDe(lugarOrigen: string | null | undefined, cfg: ConfigPlazos): ConfigHorario {
+  return {
+    horario: lugarOrigen === 'GRANJA' ? cfg.horarioGranja : cfg.horario,
+    feriados: cfg.feriados,
+  };
 }
 
 export type EstadoPlazo =
@@ -67,6 +91,10 @@ export interface Sla {
 
 export interface TicketParaSla {
   fechaCreacion: Date | string;
+  // Cuándo se recibió el reporte, si difiere de cuándo se cargó el ticket
+  // (correo o llamada cargados después). Desde acá corren los plazos.
+  fechaRecepcion?: Date | string | null;
+  lugarOrigen?: string | null;
   prioridad: number;
   tipo: number;
   estado: number;
@@ -116,9 +144,14 @@ const ORDEN_RESUMEN: EstadoPlazo[] = [
   'no_aplica',
 ];
 
-export function calcularSla(t: TicketParaSla, cfg: ConfigPlazos, ahora: Date = new Date()): Sla {
-  const creacion = new Date(t.fechaCreacion);
-  const plazo = cfg.plazos[t.prioridad] ?? cfg.plazos[2];
+export function calcularSla(t: TicketParaSla, cfgPlazos: ConfigPlazos, ahora: Date = new Date()): Sla {
+  // Los plazos corren desde la recepción del reporte y con el horario del
+  // lugar de origen.
+  const creacion = new Date(t.fechaRecepcion ?? t.fechaCreacion);
+  const cfg = horarioDe(t.lugarOrigen, cfgPlazos);
+  const plazo = cfgPlazos.plazos[t.prioridad] ?? cfgPlazos.plazos[2];
+  const primeraMin = cantidadEnMinutos(plazo.primera, cfg.horario);
+  const resolucionMin = cantidadEnMinutos(plazo.resolucion, cfg.horario);
   const cancelado = t.estado === 5;
   const resuelto = t.estado === 3 || t.estado === 4;
 
@@ -128,21 +161,21 @@ export function calcularSla(t: TicketParaSla, cfg: ConfigPlazos, ahora: Date = n
     ? NO_APLICA
     : medir(
         creacion,
-        plazo.primeraMin,
+        primeraMin,
         t.fechaPrimeraRespuesta ? new Date(t.fechaPrimeraRespuesta) : null,
         ahora,
         cfg,
         resuelto,
       );
 
-  // Resolución: solo incidentes. Desarrollo y mejora tienen un plazo propio
-  // que se define en la evaluación (P2).
+  // Resolución: no aplica a desarrollo ni mejora, que tienen un plazo propio
+  // definido en la evaluación (P2).
   const resolucion =
-    cancelado || t.tipo !== 1
+    cancelado || TIPOS_SIN_PLAZO_RESOLUCION.includes(t.tipo)
       ? NO_APLICA
       : medir(
           creacion,
-          plazo.resolucionMin,
+          resolucionMin,
           resuelto && t.fechaResolucion ? new Date(t.fechaResolucion) : null,
           ahora,
           cfg,
@@ -163,14 +196,20 @@ export interface Reapertura {
 // posteriores al cierre; pasado ese plazo hay que crear un ticket nuevo
 // vinculado.
 export function calcularReapertura(
-  t: { estado: number; fechaCierre?: Date | string | null; fechaResolucion?: Date | string | null },
-  cfg: ConfigPlazos,
+  t: {
+    estado: number;
+    lugarOrigen?: string | null;
+    fechaCierre?: Date | string | null;
+    fechaResolucion?: Date | string | null;
+  },
+  cfgPlazos: ConfigPlazos,
   ahora: Date = new Date(),
 ): Reapertura | null {
   if (t.estado !== 4) return null;
   const base = t.fechaCierre ?? t.fechaResolucion;
   if (!base) return { permitida: false, limite: null };
-  const maxMin = cfg.cierre.diasReapertura * jornadaMinutos(cfg.horario);
+  const cfg = horarioDe(t.lugarOrigen, cfgPlazos);
+  const maxMin = cfgPlazos.cierre.diasReapertura * jornadaMinutos(cfg.horario);
   const limite = sumarMinutosHabiles(new Date(base), maxMin, cfg);
   return {
     permitida: minutosHabilesEntre(new Date(base), ahora, cfg) <= maxMin,

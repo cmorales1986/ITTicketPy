@@ -21,7 +21,11 @@ import {
   ESTADO,
   TRANSICIONES,
   TIPO_LABELS,
+  TIPOS_ORDEN,
   CANAL_LABELS,
+  LUGAR_LABELS,
+  SISTEMAS_AFECTADOS,
+  CANALES_CONFORMIDAD,
   URGENCIA_LABELS,
 } from "@/lib/tickets/estados";
 import { ESTADO_PLAZO_COLORS, ESTADO_PLAZO_LABELS, formatearMinutos } from "@/lib/tickets/plazos";
@@ -86,6 +90,8 @@ export default function TicketDetallePage() {
   const [estadoPendiente, setEstadoPendiente] = useState<number | null>(null);
   const [textoEstado, setTextoEstado] = useState("");
   const [modalVinculado, setModalVinculado] = useState(false);
+  const [conformCanal, setConformCanal] = useState<string>("CORREO");
+  const [conformNota, setConformNota] = useState("");
 
   useEffect(() => {
     fetchData();
@@ -150,6 +156,20 @@ export default function TicketDetallePage() {
       return;
     }
     cambiarEstado(estado);
+  };
+
+  const registrarConformidad = async () => {
+    setActualizando(true);
+    try {
+      await api.post(`/tickets/${id}/conformidad`, { canal: conformCanal, nota: conformNota.trim() || undefined });
+      setConformNota("");
+      await fetchData();
+      toast.success("Conformidad registrada");
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || "No se pudo registrar la conformidad");
+    } finally {
+      setActualizando(false);
+    }
   };
 
   const cambiarClasificacion = async (campos: Record<string, unknown>) => {
@@ -356,10 +376,13 @@ export default function TicketDetallePage() {
             </p>
           )}
           <p className="text-gray-500 text-xs mt-1">
-            {TIPO_LABELS[ticket.tipo] ?? "Incidente / Soporte"}
+            {TIPO_LABELS[ticket.tipo] ?? "Incidente"}
             {" · "}
             Canal: {ticket.canal ? CANAL_LABELS[ticket.canal] ?? ticket.canal : "Sin registrar"}
-            {ticket.sistemaModulo ? ` · Sistema/módulo: ${ticket.sistemaModulo}` : ""}
+            {" · "}
+            Lugar: {ticket.lugarOrigen ? LUGAR_LABELS[ticket.lugarOrigen] ?? ticket.lugarOrigen : "Sin registrar"}
+            {ticket.fechaRecepcion ? ` · Recibido: ${format(new Date(ticket.fechaRecepcion), "dd/MM/yyyy HH:mm")}` : ""}
+            {ticket.sistemaModulo ? ` · Sistema o servicio: ${ticket.sistemaModulo}` : ""}
             {ticket.urgencia ? ` · Urgencia: ${URGENCIA_LABELS[ticket.urgencia]}` : ""}
           </p>
         </div>
@@ -416,7 +439,47 @@ export default function TicketDetallePage() {
             </div>
           )}
 
-          {ticket.solucion && (
+          {(ticket.estado === ESTADO.CERRADO || ticket.estado === ESTADO.CANCELADO) && (
+            <div className="bg-gray-900 border border-gray-700 rounded-xl p-5 space-y-3">
+              <h3 className="text-white font-medium">
+                Constancia de {ticket.estado === ESTADO.CERRADO ? "cierre" : "cancelación"}
+              </h3>
+              <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3 text-sm">
+                <div>
+                  <dt className="text-gray-500 text-xs">Fecha de {ticket.estado === ESTADO.CERRADO ? "cierre" : "cancelación"}</dt>
+                  <dd className="text-gray-200">
+                    {ticket.fechaCierre ? format(new Date(ticket.fechaCierre), "dd/MM/yyyy HH:mm") : "Sin registrar"}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-gray-500 text-xs">Conformidad del usuario</dt>
+                  <dd className="text-gray-200">
+                    {ticket.conformidadFecha
+                      ? `${format(new Date(ticket.conformidadFecha), "dd/MM/yyyy")} por ${
+                          ticket.conformidadCanal ? CANAL_LABELS[ticket.conformidadCanal] ?? ticket.conformidadCanal : "—"
+                        }${ticket.conformidadNota ? ` — ${ticket.conformidadNota}` : ""}`
+                      : ticket.cerradoSinRespuesta
+                        ? "Cerrado sin respuesta del usuario"
+                        : "Sin registrar"}
+                  </dd>
+                </div>
+                {ticket.solucion && (
+                  <div className="sm:col-span-2">
+                    <dt className="text-gray-500 text-xs">Solución aplicada</dt>
+                    <dd className="text-gray-200 whitespace-pre-wrap">{ticket.solucion}</dd>
+                  </div>
+                )}
+                {ticket.motivoCancelacion && (
+                  <div className="sm:col-span-2">
+                    <dt className="text-gray-500 text-xs">Motivo de cancelación</dt>
+                    <dd className="text-gray-200 whitespace-pre-wrap">{ticket.motivoCancelacion}</dd>
+                  </div>
+                )}
+              </dl>
+            </div>
+          )}
+
+          {ticket.solucion && ticket.estado < ESTADO.CERRADO && (
             <div className="bg-gray-900 border border-green-900/50 rounded-xl p-5">
               <h3 className="text-white font-medium mb-3">Solución aplicada</h3>
               <p className="text-gray-300 text-sm leading-relaxed whitespace-pre-wrap">
@@ -425,7 +488,7 @@ export default function TicketDetallePage() {
             </div>
           )}
 
-          {ticket.motivoCancelacion && (
+          {ticket.motivoCancelacion && ticket.estado < ESTADO.CERRADO && (
             <div className="bg-gray-900 border border-red-900/50 rounded-xl p-5">
               <h3 className="text-white font-medium mb-3">Motivo de cancelación</h3>
               <p className="text-gray-300 text-sm leading-relaxed whitespace-pre-wrap">
@@ -912,6 +975,41 @@ export default function TicketDetallePage() {
                 )}
               </div>
 
+              {/* Conformidad del usuario */}
+              {(ticket.estado === ESTADO.EN_PROCESO || ticket.estado === ESTADO.RESUELTO || ticket.estado === ESTADO.CERRADO) && (
+                <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 space-y-3">
+                  <h3 className="text-white font-medium text-sm">Conformidad del usuario</h3>
+                  {ticket.conformidadFecha && (
+                    <p className="text-xs text-green-400">
+                      Registrada el {format(new Date(ticket.conformidadFecha), "dd/MM/yyyy")}
+                      {ticket.conformidadCanal ? ` por ${CANAL_LABELS[ticket.conformidadCanal] ?? ticket.conformidadCanal}` : ""}
+                    </p>
+                  )}
+                  <select
+                    value={conformCanal}
+                    onChange={(e) => setConformCanal(e.target.value)}
+                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500 text-sm"
+                  >
+                    {CANALES_CONFORMIDAD.map((c) => (
+                      <option key={c} value={c}>{CANAL_LABELS[c]}</option>
+                    ))}
+                  </select>
+                  <input
+                    value={conformNota}
+                    onChange={(e) => setConformNota(e.target.value)}
+                    placeholder="Nota (opcional)"
+                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 text-sm"
+                  />
+                  <button
+                    onClick={registrarConformidad}
+                    disabled={actualizando}
+                    className="w-full text-xs py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-white font-medium disabled:opacity-40"
+                  >
+                    {ticket.conformidadFecha ? "Registrar de nuevo" : "Registrar conformidad"}
+                  </button>
+                </div>
+              )}
+
               {/* Clasificación (PR-INF-03) */}
               <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 space-y-3">
                 <h3 className="text-white font-medium text-sm">Clasificación</h3>
@@ -923,24 +1021,57 @@ export default function TicketDetallePage() {
                     disabled={actualizando}
                     className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500 text-sm"
                   >
-                    {Object.entries(TIPO_LABELS).map(([v, l]) => (
-                      <option key={v} value={v}>{l}</option>
+                    {TIPOS_ORDEN.map((v) => (
+                      <option key={v} value={v}>{TIPO_LABELS[v]}</option>
                     ))}
                   </select>
                 </div>
                 <div>
-                  <label className="text-gray-500 text-xs mb-1 block">Sistema / módulo afectado</label>
-                  <input
-                    key={ticket.sistemaModulo ?? ""}
-                    defaultValue={ticket.sistemaModulo ?? ""}
-                    onBlur={(e) => {
-                      const v = e.target.value.trim();
-                      if (v && v !== (ticket.sistemaModulo ?? "")) cambiarClasificacion({ sistemaModulo: v });
+                  <label className="text-gray-500 text-xs mb-1 block">Sistema o servicio afectado</label>
+                  <select
+                    value={
+                      !ticket.sistemaModulo
+                        ? ""
+                        : ticket.sistemaModulo.startsWith("Otro: ")
+                          ? "Otro"
+                          : ticket.sistemaModulo
+                    }
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      if (!v) return;
+                      if (v === "Otro") {
+                        const detalle = window.prompt("¿Qué sistema o servicio es?")?.trim();
+                        if (detalle) cambiarClasificacion({ sistemaModulo: `Otro: ${detalle}` });
+                        return;
+                      }
+                      cambiarClasificacion({ sistemaModulo: v });
                     }}
                     disabled={actualizando}
-                    placeholder="Ej: SAP B1 — Compras"
-                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 text-sm"
-                  />
+                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500 text-sm"
+                  >
+                    <option value="">Sin indicar</option>
+                    {SISTEMAS_AFECTADOS.map((s) => (
+                      <option key={s} value={s}>{s}</option>
+                    ))}
+                  </select>
+                  {ticket.sistemaModulo?.startsWith("Otro: ") && (
+                    <p className="text-gray-500 text-xs mt-1">{ticket.sistemaModulo.slice("Otro: ".length)}</p>
+                  )}
+                </div>
+                <div>
+                  <label className="text-gray-500 text-xs mb-1 block">Lugar de origen</label>
+                  <select
+                    value={ticket.lugarOrigen ?? ""}
+                    onChange={(e) => e.target.value && cambiarClasificacion({ lugarOrigen: e.target.value })}
+                    disabled={actualizando}
+                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500 text-sm"
+                  >
+                    <option value="">Sin registrar (se mide como oficina)</option>
+                    {Object.entries(LUGAR_LABELS).map(([v, l]) => (
+                      <option key={v} value={v}>{l}</option>
+                    ))}
+                  </select>
+                  <p className="text-gray-600 text-xs mt-1">Define el horario con el que se cuentan los plazos.</p>
                 </div>
                 <div>
                   <label className="text-gray-500 text-xs mb-1 block">Urgencia percibida por el usuario</label>

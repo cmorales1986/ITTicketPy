@@ -104,6 +104,16 @@ export const tickets = pgTable('tickets', {
   // repetida). Sin .references() para evitar la referencia circular de
   // tipos; la FK existe en la migración.
   ticketAnteriorId: uuid('ticketAnteriorId'),
+  // Lugar de origen del reporte (OFICINA | GRANJA): define el horario con el
+  // que se cuentan los plazos. NULL = sin registrar, se trata como oficina.
+  lugarOrigen: varchar('lugarOrigen', { length: 10 }),
+  // Cuándo se recibió el reporte, si difiere de cuándo se cargó el ticket
+  // (correo o llamada cargados después). Los plazos corren desde acá.
+  fechaRecepcion: timestamp('fechaRecepcion'),
+  // Conformidad del usuario con la solución, registrada por el equipo.
+  conformidadFecha: timestamp('conformidadFecha'),
+  conformidadCanal: varchar('conformidadCanal', { length: 20 }),
+  conformidadNota: text('conformidadNota'),
 });
 
 // Parámetros editables desde el panel (horario laboral, plazos). Cada fila

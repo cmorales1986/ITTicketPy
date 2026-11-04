@@ -7,14 +7,21 @@ import {
   notificarTicketCerrado,
   notificarNuevoMensajeChat,
 } from '@/lib/notifications/whatsapp';
-import { ANIOS_CONSERVACION, ESTADO, ESTADOS_FINALES, transicionPermitida } from '@/lib/tickets/estados';
+import {
+  ANIOS_CONSERVACION,
+  ESTADO,
+  ESTADOS_FINALES,
+  TIPOS_SIN_PLAZO_RESOLUCION,
+  transicionPermitida,
+} from '@/lib/tickets/estados';
 import {
   calcularReapertura,
   calcularSla,
+  horarioDe,
   type ConfigPlazos,
   type TicketParaSla,
 } from '@/lib/tickets/plazos';
-import { jornadaMinutos, minutosHabilesEntre } from '@/lib/tickets/horario';
+import { jornadaMinutos, limitesDeRango, minutosHabilesEntre } from '@/lib/tickets/horario';
 import { obtenerConfigPlazos } from '@/lib/config/service';
 
 const ESTADO_LABELS: Record<number, string> = {
@@ -74,6 +81,9 @@ export interface CreateTicketInput {
   // Ticket del que este es continuación (reapertura fuera de plazo o falla
   // repetida).
   ticketAnteriorId?: string;
+  // Lugar de origen (OFICINA | GRANJA) y cuándo se recibió el reporte.
+  lugarOrigen?: string;
+  fechaRecepcion?: Date;
 }
 
 export interface UpdateTicketInput {
@@ -94,6 +104,7 @@ export interface UpdateTicketInput {
   proveedorNotas?: string;
   motivoDesvio?: string;
   motivoReapertura?: string; // obligatorio al reabrir un ticket Cerrado
+  lugarOrigen?: string;
 }
 
 async function registrarHistorial(
@@ -276,7 +287,11 @@ export async function createTicket(
     ticket.id,
     actorId ?? usuarioId,
     'CREACION',
-    `${dto.canal ? `Ticket creado (canal: ${dto.canal})` : 'Ticket creado'}${anterior ? ` — vinculado al ticket anterior ${anterior.numero}` : ''}`,
+    `${dto.canal ? `Ticket creado (canal: ${dto.canal})` : 'Ticket creado'}${
+      dto.fechaRecepcion
+        ? ` — reporte recibido el ${dto.fechaRecepcion.toLocaleString('es-PY', { timeZone: 'America/Asuncion' })}`
+        : ''
+    }${anterior ? ` — vinculado al ticket anterior ${anterior.numero}` : ''}`,
   );
   if (anterior) {
     await registrarHistorial(
@@ -349,7 +364,11 @@ export async function updateTicket(id: string, dto: UpdateTicketInput, usuarioId
   const motivoDesvio = dto.motivoDesvio?.trim();
   if (cambiaEstado && dto.estado === ESTADO.CERRADO) {
     const prioridadFinal = dto.prioridad ?? ticket.prioridad;
-    if (prioridadFinal === 4 && ticket.tipo === 1 && !(motivoDesvio || ticket.motivoDesvio)) {
+    if (
+      prioridadFinal === 4 &&
+      !TIPOS_SIN_PLAZO_RESOLUCION.includes(ticket.tipo) &&
+      !(motivoDesvio || ticket.motivoDesvio)
+    ) {
       const cfg = await obtenerConfigPlazos();
       const sla = calcularSla({ ...ticket, prioridad: prioridadFinal }, cfg);
       if (sla.resolucion.estado === 'vencido' || sla.resolucion.estado === 'cumplido_tarde') {
@@ -359,6 +378,19 @@ export async function updateTicket(id: string, dto: UpdateTicketInput, usuarioId
         );
       }
     }
+  }
+
+  // Cambiar el lugar de origen cambia el horario con el que se miden los
+  // plazos: queda constancia.
+  if (dto.lugarOrigen && dto.lugarOrigen !== ticket.lugarOrigen) {
+    await registrarHistorial(
+      id,
+      usuarioId,
+      'LUGAR',
+      `Lugar de origen: ${ticket.lugarOrigen ?? 'sin registrar'} → ${dto.lugarOrigen}`,
+      ticket.lugarOrigen ?? 'Sin registrar',
+      dto.lugarOrigen,
+    );
   }
 
   if (motivoDesvio && motivoDesvio !== ticket.motivoDesvio) {
@@ -611,7 +643,6 @@ export async function agregarMensajeChat(ticketId: string, usuarioId: string, co
 // el equipo.
 export async function cerrarResueltosSinRespuesta(ahora = new Date()) {
   const cfg = await obtenerConfigPlazos();
-  const maxMin = cfg.cierre.diasCierre * jornadaMinutos(cfg.horario);
 
   const resueltos = await db.query.tickets.findMany({
     where: eq(tickets.estado, ESTADO.RESUELTO),
@@ -621,7 +652,10 @@ export async function cerrarResueltosSinRespuesta(ahora = new Date()) {
   const cerrados: string[] = [];
   for (const t of resueltos) {
     if (!t.fechaResolucion) continue;
-    if (minutosHabilesEntre(new Date(t.fechaResolucion), ahora, cfg) < maxMin) continue;
+    // Los días hábiles se cuentan con el horario del lugar de origen del ticket.
+    const h = horarioDe(t.lugarOrigen, cfg);
+    const maxMin = cfg.cierre.diasCierre * jornadaMinutos(h.horario);
+    if (minutosHabilesEntre(new Date(t.fechaResolucion), ahora, h) < maxMin) continue;
 
     const respondio = t.mensajesChat.some(
       (m) => m.usuarioId === t.usuarioId && new Date(m.fechaCreacion) > new Date(t.fechaResolucion!),
@@ -648,4 +682,44 @@ export async function cerrarResueltosSinRespuesta(ahora = new Date()) {
     cerrados.push(t.numero);
   }
   return { revisados: resueltos.length, cerrados };
+}
+
+// Conformidad del usuario con la solución, registrada por el equipo (por
+// ejemplo, el usuario confirmó por correo o por teléfono). Queda con fecha,
+// canal y quién la registró.
+export async function registrarConformidad(id: string, usuarioId: string, canal: string, nota?: string) {
+  const ticket = await cargarTicket(id);
+  if (!ticket) return null;
+  if (![ESTADO.EN_PROCESO, ESTADO.RESUELTO, ESTADO.CERRADO].includes(ticket.estado as 2 | 3 | 4)) {
+    throw new TicketReglaError('La conformidad se registra sobre un ticket en proceso, resuelto o cerrado');
+  }
+
+  await db
+    .update(tickets)
+    .set({ conformidadFecha: new Date(), conformidadCanal: canal, conformidadNota: nota?.trim() || null })
+    .where(eq(tickets.id, id));
+  await registrarHistorial(
+    id,
+    usuarioId,
+    'CONFORMIDAD',
+    `Conformidad del usuario registrada (canal: ${canal})${nota?.trim() ? ` — ${nota.trim()}` : ''}`,
+  );
+  return findTicketById(id);
+}
+
+// Todos los tickets de un período (rango de días, hora de Paraguay): los
+// recibidos en el período y los que se cerraron o cancelaron en él. Base de la
+// exportación a Excel.
+export async function findTicketsDelPeriodo(desdeDia: string, hastaDia: string) {
+  const { desde, hasta } = limitesDeRango(desdeDia, hastaDia);
+  return db.query.tickets.findMany({
+    where: (t, { and: andOp, or, gte: gteOp, lt }) =>
+      or(
+        andOp(gteOp(t.fechaCreacion, desde), lt(t.fechaCreacion, hasta)),
+        andOp(gteOp(t.fechaRecepcion, desde), lt(t.fechaRecepcion, hasta)),
+        andOp(gteOp(t.fechaCierre, desde), lt(t.fechaCierre, hasta)),
+      ),
+    with: { usuario: true, tecnicoAsignado: true, categoria: true, empresa: true },
+    orderBy: (t, { asc }) => [asc(t.fechaCreacion)],
+  });
 }

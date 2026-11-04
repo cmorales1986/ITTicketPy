@@ -3,30 +3,39 @@ import { z } from 'zod';
 import { requireAdmin } from '@/lib/auth/guard';
 import {
   guardarHorario,
+  guardarHorarioGranja,
   guardarParametrosCierre,
   guardarPlazos,
   listarFeriados,
   obtenerHorario,
+  obtenerHorarioGranja,
   obtenerParametrosCierre,
   obtenerPlazos,
 } from '@/lib/config/service';
 
 const hhmm = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/);
 
+const horarioSchema = z
+  .object({
+    dias: z.array(z.number().int().min(0).max(6)).min(1),
+    desde: hhmm,
+    hasta: hhmm,
+  })
+  .refine((h) => h.hasta > h.desde, { message: 'La hora de cierre debe ser posterior a la de apertura' });
+
+const cantidadSchema = z.object({
+  valor: z.number().min(0.25).max(365),
+  unidad: z.enum(['h', 'd']),
+});
+
 const plazoSchema = z.object({
-  primeraMin: z.number().int().min(1).max(60 * 24 * 30),
-  resolucionMin: z.number().int().min(1).max(60 * 24 * 365),
+  primera: cantidadSchema,
+  resolucion: cantidadSchema,
 });
 
 const putSchema = z.object({
-  horario: z
-    .object({
-      dias: z.array(z.number().int().min(0).max(6)).min(1),
-      desde: hhmm,
-      hasta: hhmm,
-    })
-    .refine((h) => h.hasta > h.desde, { message: 'La hora de cierre debe ser posterior a la de apertura' })
-    .optional(),
+  horario: horarioSchema.optional(), // oficina
+  horarioGranja: horarioSchema.optional(),
   plazos: z.record(z.enum(['1', '2', '3', '4']), plazoSchema).optional(),
   cierre: z
     .object({
@@ -40,13 +49,14 @@ export async function GET() {
   const { error } = await requireAdmin();
   if (error) return error;
 
-  const horario = await obtenerHorario();
-  const [plazos, feriados, cierre] = await Promise.all([
-    obtenerPlazos(horario),
+  const [horario, horarioGranja, plazos, feriados, cierre] = await Promise.all([
+    obtenerHorario(),
+    obtenerHorarioGranja(),
+    obtenerPlazos(),
     listarFeriados(),
     obtenerParametrosCierre(),
   ]);
-  return NextResponse.json({ horario, plazos, feriados, cierre });
+  return NextResponse.json({ horario, horarioGranja, plazos, feriados, cierre });
 }
 
 export async function PUT(request: NextRequest) {
@@ -59,6 +69,7 @@ export async function PUT(request: NextRequest) {
   }
 
   if (parsed.data.horario) await guardarHorario(parsed.data.horario);
+  if (parsed.data.horarioGranja) await guardarHorarioGranja(parsed.data.horarioGranja);
   if (parsed.data.cierre) await guardarParametrosCierre(parsed.data.cierre);
   if (parsed.data.plazos) {
     const actuales = await obtenerPlazos();

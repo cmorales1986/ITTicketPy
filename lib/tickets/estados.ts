@@ -35,17 +35,67 @@ export function transicionPermitida(desde: number, hacia: number): boolean {
   return TRANSICIONES[desde]?.includes(hacia) ?? false;
 }
 
+// Tipos de PR-INF-03. Los valores 1 a 3 se conservan de la primera versión
+// (los tickets históricos quedaron en 1, que ahora se llama solo "Incidente").
 export const TIPO = {
   INCIDENTE: 1,
   DESARROLLO: 2,
   MEJORA: 3,
+  SOPORTE: 4,
+  SOLICITUD_USUARIO: 5, // alta, baja o modificación de usuarios (PR-INF-02)
 } as const;
 
 export const TIPO_LABELS: Record<number, string> = {
-  1: 'Incidente / Soporte',
+  1: 'Incidente',
   2: 'Solicitud de desarrollo',
   3: 'Mejora',
+  4: 'Soporte',
+  5: 'Solicitud de usuario',
 };
+
+// Orden en que se muestran en los selectores.
+export const TIPOS_ORDEN: number[] = [1, 4, 5, 2, 3];
+
+// Desarrollo y mejora no usan el plazo de resolución de la tabla: su plazo se
+// define en la evaluación. La primera respuesta sí aplica a todos.
+export const TIPOS_SIN_PLAZO_RESOLUCION: number[] = [TIPO.DESARROLLO, TIPO.MEJORA];
+
+// Lugar de origen del reporte: define el horario con el que se cuentan los
+// plazos (oficina de Asunción o granja).
+export const LUGAR = {
+  OFICINA: 'OFICINA',
+  GRANJA: 'GRANJA',
+} as const;
+
+export type Lugar = (typeof LUGAR)[keyof typeof LUGAR];
+
+export const LUGAR_LABELS: Record<string, string> = {
+  OFICINA: 'Oficina',
+  GRANJA: 'Granja',
+};
+
+// Sistema o servicio afectado (lista cerrada de PR-INF-03). "Otro" admite un
+// detalle libre, que se guarda como "Otro: detalle".
+export const SISTEMAS_AFECTADOS = [
+  'SAP',
+  'Pygs System',
+  'Agriness',
+  'Correo electrónico',
+  'Red e internet',
+  'Equipos',
+  'Servidores y back up',
+  'Otro',
+] as const;
+
+export function sistemaAfectadoValido(valor: string): boolean {
+  return (
+    (SISTEMAS_AFECTADOS as readonly string[]).includes(valor) ||
+    (valor.startsWith('Otro: ') && valor.length > 'Otro: '.length)
+  );
+}
+
+// Canales por los que el equipo registra la conformidad del usuario.
+export const CANALES_CONFORMIDAD = ['WHATSAPP', 'CORREO', 'LLAMADA'] as const;
 
 export const CANAL = {
   WHATSAPP: 'WHATSAPP',

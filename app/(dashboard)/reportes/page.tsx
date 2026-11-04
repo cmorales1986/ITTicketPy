@@ -10,7 +10,7 @@ import {
 } from '@/types';
 import { useAuthStore } from '@/store/auth.store';
 import { toast } from 'sonner';
-import { Loader2, FileDown, Printer, ClipboardList } from 'lucide-react';
+import { Loader2, FileDown, FileSpreadsheet, Printer, ClipboardList } from 'lucide-react';
 import { format } from 'date-fns';
 import Estrellas from '@/components/tickets/Estrellas';
 
@@ -22,6 +22,19 @@ function hace30Dias(): string {
 
 function hoy(): string {
   return new Date().toISOString().slice(0, 10);
+}
+
+function aIso(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+// Primer y último día del mes anterior: es el rango de la exportación mensual.
+function mesAnterior(): [string, string] {
+  const ahora = new Date();
+  return [
+    aIso(new Date(ahora.getFullYear(), ahora.getMonth() - 1, 1)),
+    aIso(new Date(ahora.getFullYear(), ahora.getMonth(), 0)),
+  ];
 }
 
 export default function ReportesPage() {
@@ -37,6 +50,7 @@ export default function ReportesPage() {
   const [filtroEmpresa, setFiltroEmpresa] = useState('');
   const [filtroEstado, setFiltroEstado] = useState('');
   const [filtroCategoria, setFiltroCategoria] = useState('');
+  const [exportando, setExportando] = useState(false);
 
   useEffect(() => {
     // Solo admins pueden ver esta página
@@ -104,6 +118,28 @@ export default function ReportesPage() {
     URL.revokeObjectURL(url);
   };
 
+  // Listado de todos los tickets del período en Excel (FL-INF-01_AAAA-MM.xlsx
+  // si el rango es un mes completo). Copia independiente de la base de datos.
+  const exportarExcel = async () => {
+    setExportando(true);
+    try {
+      const res = await api.get('/reportes/exportar', { params: { desde, hasta }, responseType: 'blob' });
+      const nombre =
+        /filename="([^"]+)"/.exec(String(res.headers['content-disposition'] ?? ''))?.[1] ??
+        `FL-INF-01_${desde}_${hasta}.xlsx`;
+      const url = URL.createObjectURL(res.data);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = nombre;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      toast.error('No se pudo generar el Excel');
+    } finally {
+      setExportando(false);
+    }
+  };
+
   if (usuario?.rol !== 2 && usuario?.rol !== 3) return null;
 
   return (
@@ -114,7 +150,25 @@ export default function ReportesPage() {
           <h1 className="text-2xl font-bold text-white">Reporte de tickets</h1>
           <p className="text-gray-400 mt-1">Para auditoría — actividad de tickets en un rango de fechas</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={() => {
+              const [d, h] = mesAnterior();
+              setDesde(d);
+              setHasta(h);
+            }}
+            className="flex items-center gap-2 bg-gray-800 hover:bg-gray-700 text-white px-4 py-2.5 rounded-lg transition text-sm"
+          >
+            Mes anterior
+          </button>
+          <button
+            onClick={exportarExcel}
+            disabled={exportando}
+            className="flex items-center gap-2 bg-green-700 hover:bg-green-600 disabled:opacity-50 text-white px-4 py-2.5 rounded-lg transition text-sm"
+          >
+            {exportando ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileSpreadsheet className="w-4 h-4" />}
+            Exportar a Excel
+          </button>
           <button
             onClick={exportarCsv}
             disabled={tickets.length === 0}
