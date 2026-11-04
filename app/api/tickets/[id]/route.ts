@@ -24,6 +24,9 @@ const updateTicketSchema = z.object({
   proveedorNotas: z.string().optional(),
   // Obligatorio para cerrar un ticket Crítico fuera de plazo.
   motivoDesvio: z.string().optional(),
+  // Obligatorio al reabrir un ticket Cerrado (y opcional si el usuario objeta
+  // una solución).
+  motivoReapertura: z.string().optional(),
 });
 
 export async function GET(

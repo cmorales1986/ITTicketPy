@@ -84,7 +84,14 @@ export interface Ticket {
   proveedorNotas?: string | null;
   fechaPrimeraRespuesta?: string | null;
   motivoDesvio?: string | null;
+  fechaCierre?: string | null;
+  reaperturas: number;
+  cerradoSinRespuesta: boolean;
+  ticketAnteriorId?: string | null;
+  ticketAnterior?: Ticket | null;
+  continuaciones?: Ticket[];
   sla?: Sla;
+  reapertura?: { permitida: boolean; limite: string | null } | null;
   usuarioId: string;
   usuario?: Usuario;
   tecnicoAsignadoId?: string;

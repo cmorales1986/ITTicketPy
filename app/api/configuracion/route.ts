@@ -3,9 +3,11 @@ import { z } from 'zod';
 import { requireAdmin } from '@/lib/auth/guard';
 import {
   guardarHorario,
+  guardarParametrosCierre,
   guardarPlazos,
   listarFeriados,
   obtenerHorario,
+  obtenerParametrosCierre,
   obtenerPlazos,
 } from '@/lib/config/service';
 
@@ -26,6 +28,12 @@ const putSchema = z.object({
     .refine((h) => h.hasta > h.desde, { message: 'La hora de cierre debe ser posterior a la de apertura' })
     .optional(),
   plazos: z.record(z.enum(['1', '2', '3', '4']), plazoSchema).optional(),
+  cierre: z
+    .object({
+      diasCierre: z.number().int().min(1).max(60),
+      diasReapertura: z.number().int().min(1).max(60),
+    })
+    .optional(),
 });
 
 export async function GET() {
@@ -33,8 +41,12 @@ export async function GET() {
   if (error) return error;
 
   const horario = await obtenerHorario();
-  const [plazos, feriados] = await Promise.all([obtenerPlazos(horario), listarFeriados()]);
-  return NextResponse.json({ horario, plazos, feriados });
+  const [plazos, feriados, cierre] = await Promise.all([
+    obtenerPlazos(horario),
+    listarFeriados(),
+    obtenerParametrosCierre(),
+  ]);
+  return NextResponse.json({ horario, plazos, feriados, cierre });
 }
 
 export async function PUT(request: NextRequest) {
@@ -47,6 +59,7 @@ export async function PUT(request: NextRequest) {
   }
 
   if (parsed.data.horario) await guardarHorario(parsed.data.horario);
+  if (parsed.data.cierre) await guardarParametrosCierre(parsed.data.cierre);
   if (parsed.data.plazos) {
     const actuales = await obtenerPlazos();
     await guardarPlazos({

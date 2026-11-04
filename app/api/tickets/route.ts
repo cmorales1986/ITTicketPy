@@ -20,6 +20,8 @@ const createTicketSchema = z.object({
   tipo: z.number().min(1).max(3).default(1),
   sistemaModulo: z.string().min(1).max(255),
   urgencia: z.number().min(1).max(4),
+  // Continuación de un ticket anterior (reapertura fuera de plazo).
+  ticketAnteriorId: optionalUuid,
 });
 
 export async function GET(request: NextRequest) {

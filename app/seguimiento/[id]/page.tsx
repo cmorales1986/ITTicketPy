@@ -63,7 +63,7 @@ export default async function SeguimientoPage({
     { valor: 1, label: 'Ticket recibido', icon: Inbox, fecha: ticket.fechaCreacion },
     { valor: 2, label: 'En progreso', icon: Wrench, fecha: fechaAsignacion },
     { valor: 3, label: 'Resuelto', icon: CheckCircle2, fecha: ticket.estado >= 3 && ticket.estado <= 4 ? ticket.fechaResolucion : undefined },
-    { valor: 4, label: 'Cerrado', icon: Lock, fecha: ticket.estado === 4 ? ticket.fechaResolucion : undefined },
+    { valor: 4, label: 'Cerrado', icon: Lock, fecha: ticket.estado === 4 ? ticket.fechaCierre ?? ticket.fechaResolucion : undefined },
   ];
 
   return (

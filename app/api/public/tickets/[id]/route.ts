@@ -24,6 +24,7 @@ export async function GET(
     estado: ticket.estado,
     fechaCreacion: ticket.fechaCreacion,
     fechaResolucion: ticket.fechaResolucion,
+    fechaCierre: ticket.fechaCierre,
     reportadoPor: ticket.usuario?.nombre ?? null,
     tecnicoAsignado: ticket.tecnicoAsignado?.nombre ?? null,
     categoria: ticket.categoria?.nombre ?? null,

@@ -8,7 +8,13 @@ import {
   notificarNuevoMensajeChat,
 } from '@/lib/notifications/whatsapp';
 import { ESTADO, ESTADOS_FINALES, transicionPermitida } from '@/lib/tickets/estados';
-import { calcularSla, type ConfigPlazos, type TicketParaSla } from '@/lib/tickets/plazos';
+import {
+  calcularReapertura,
+  calcularSla,
+  type ConfigPlazos,
+  type TicketParaSla,
+} from '@/lib/tickets/plazos';
+import { jornadaMinutos, minutosHabilesEntre } from '@/lib/tickets/horario';
 import { obtenerConfigPlazos } from '@/lib/config/service';
 
 const ESTADO_LABELS: Record<number, string> = {
@@ -34,8 +40,17 @@ export class TicketReglaError extends Error {
 
 // Agrega a cada ticket su medición de plazos (primera respuesta y
 // resolución, en horas hábiles). Se calcula al leer: nunca queda desfasada.
-function conSla<T extends TicketParaSla>(ticket: T, cfg: ConfigPlazos, ahora = new Date()) {
-  return { ...ticket, sla: calcularSla(ticket, cfg, ahora) };
+function conSla<T extends TicketParaSla & { fechaCierre?: Date | string | null }>(
+  ticket: T,
+  cfg: ConfigPlazos,
+  ahora = new Date(),
+) {
+  return {
+    ...ticket,
+    sla: calcularSla(ticket, cfg, ahora),
+    // Solo para tickets Cerrados: si todavía se pueden reabrir.
+    reapertura: calcularReapertura(ticket, cfg, ahora),
+  };
 }
 
 const PRIORIDAD_LABELS: Record<number, string> = {
@@ -56,6 +71,9 @@ export interface CreateTicketInput {
   tipo?: number;
   sistemaModulo?: string;
   urgencia?: number;
+  // Ticket del que este es continuación (reapertura fuera de plazo o falla
+  // repetida).
+  ticketAnteriorId?: string;
 }
 
 export interface UpdateTicketInput {
@@ -75,6 +93,7 @@ export interface UpdateTicketInput {
   proveedorFechaCompromiso?: string; // fecha ISO (YYYY-MM-DD)
   proveedorNotas?: string;
   motivoDesvio?: string;
+  motivoReapertura?: string; // obligatorio al reabrir un ticket Cerrado
 }
 
 async function registrarHistorial(
@@ -138,6 +157,8 @@ async function cargarTicket(id: string) {
       tecnicoAsignado: true,
       categoria: true,
       empresa: true,
+      ticketAnterior: true,
+      continuaciones: true,
       comentarios: {
         with: { usuario: true },
         orderBy: (c, { asc }) => [asc(c.fechaCreacion)],
@@ -248,12 +269,23 @@ export async function createTicket(
     .values({ ...dto, numero, usuarioId, empresaId: usuario?.empresaId })
     .returning();
 
+  const anterior = dto.ticketAnteriorId
+    ? await db.query.tickets.findFirst({ where: eq(tickets.id, dto.ticketAnteriorId) })
+    : null;
   await registrarHistorial(
     ticket.id,
     actorId ?? usuarioId,
     'CREACION',
-    dto.canal ? `Ticket creado (canal: ${dto.canal})` : 'Ticket creado',
+    `${dto.canal ? `Ticket creado (canal: ${dto.canal})` : 'Ticket creado'}${anterior ? ` — vinculado al ticket anterior ${anterior.numero}` : ''}`,
   );
+  if (anterior) {
+    await registrarHistorial(
+      anterior.id,
+      actorId ?? usuarioId,
+      'VINCULO',
+      `Se creó el ticket ${ticket.numero} como continuación de este`,
+    );
+  }
 
   if (usuario?.numeroWhatsApp) {
     const link = `${process.env.APP_URL}/seguimiento/${ticket.id}`;
@@ -284,6 +316,24 @@ export async function updateTicket(id: string, dto: UpdateTicketInput, usuarioId
     }
     if (dto.estado === ESTADO.CANCELADO && !motivoCancelacion) {
       throw new TicketReglaError('Para cancelar el ticket hay que indicar el motivo');
+    }
+  }
+
+  // Reapertura de un ticket Cerrado: solo dentro de N días hábiles posteriores
+  // al cierre y con motivo. Pasado ese plazo hay que crear un ticket nuevo
+  // vinculado (ticketAnteriorId).
+  const motivoReapertura = dto.motivoReapertura?.trim();
+  const esReapertura = cambiaEstado && ticket.estado === ESTADO.CERRADO && dto.estado === ESTADO.EN_PROCESO;
+  if (esReapertura) {
+    const cfg = await obtenerConfigPlazos();
+    if (!calcularReapertura(ticket, cfg)?.permitida) {
+      throw new TicketReglaError(
+        `Pasó el plazo para reabrir este ticket (${cfg.cierre.diasReapertura} días hábiles desde el cierre). Creá un ticket nuevo vinculado a este`,
+        'REAPERTURA_VENCIDA',
+      );
+    }
+    if (!motivoReapertura) {
+      throw new TicketReglaError('Para reabrir el ticket hay que indicar el motivo', 'MOTIVO_REAPERTURA');
     }
   }
 
@@ -334,7 +384,11 @@ export async function updateTicket(id: string, dto: UpdateTicketInput, usuarioId
         ? ` — Solución: ${solucion}`
         : dto.estado === ESTADO.CANCELADO
           ? ` — Motivo: ${motivoCancelacion}`
-          : '';
+          : esReapertura
+            ? ` — Reapertura n.º ${ticket.reaperturas + 1}: ${motivoReapertura}`
+            : dto.estado === ESTADO.EN_PROCESO && ticket.estado === ESTADO.RESUELTO && motivoReapertura
+              ? ` — El usuario objetó la solución: ${motivoReapertura}`
+              : '';
     await registrarHistorial(
       id,
       usuarioId,
@@ -356,7 +410,8 @@ export async function updateTicket(id: string, dto: UpdateTicketInput, usuarioId
     );
   }
 
-  const { proveedorFechaCompromiso, ...dtoSinFecha } = dto;
+  const { proveedorFechaCompromiso, motivoReapertura: _motivoReapertura, ...dtoSinFecha } = dto;
+  void _motivoReapertura; // solo va al historial, no es columna
   const updateValues: Partial<typeof tickets.$inferInsert> = { ...dtoSinFecha };
   if (proveedorFechaCompromiso !== undefined) {
     updateValues.proveedorFechaCompromiso = proveedorFechaCompromiso
@@ -373,12 +428,24 @@ export async function updateTicket(id: string, dto: UpdateTicketInput, usuarioId
   if (cambiaEstado && dto.estado === ESTADO.CANCELADO) updateValues.motivoCancelacion = motivoCancelacion;
 
   if (cambiaEstado) {
-    if ([ESTADO.RESUELTO, ESTADO.CERRADO, ESTADO.CANCELADO].includes(dto.estado as 3 | 4 | 5)) {
-      updateValues.fechaResolucion = new Date();
+    const ahora = new Date();
+    if (dto.estado === ESTADO.RESUELTO) {
+      updateValues.fechaResolucion = ahora;
+    } else if (dto.estado === ESTADO.CERRADO) {
+      // fechaResolucion queda como la del paso a Resuelto (es lo que mide el
+      // plazo de resolución); el cierre tiene su propia fecha.
+      updateValues.fechaCierre = ahora;
+      updateValues.cerradoSinRespuesta = false;
+    } else if (dto.estado === ESTADO.CANCELADO) {
+      updateValues.fechaResolucion = ahora;
+      updateValues.fechaCierre = ahora;
     } else if (dto.estado === ESTADO.EN_PROCESO) {
-      // Reapertura / objeción: vuelve a estar en curso. La fecha anterior
-      // queda en el historial.
+      // Reapertura / objeción: vuelve a estar en curso. Las fechas anteriores
+      // quedan en el historial.
       updateValues.fechaResolucion = null;
+      updateValues.fechaCierre = null;
+      updateValues.cerradoSinRespuesta = false;
+      if (esReapertura) updateValues.reaperturas = ticket.reaperturas + 1;
     }
     // El primer paso a En Proceso cuenta como primera respuesta.
     if (dto.estado === ESTADO.EN_PROCESO && !ticket.fechaPrimeraRespuesta) {
@@ -521,4 +588,50 @@ export async function agregarMensajeChat(ticketId: string, usuarioId: string, co
   }
 
   return mensaje;
+}
+
+// Cierre automático (cron diario): un ticket Resuelto cuyo usuario no
+// respondió en N días hábiles desde que se le comunicó la solución pasa a
+// Cerrado, con marca y constancia en el historial. Si el usuario escribió algo
+// después de la solución (puede ser una objeción) no se cierra solo: lo decide
+// el equipo.
+export async function cerrarResueltosSinRespuesta(ahora = new Date()) {
+  const cfg = await obtenerConfigPlazos();
+  const maxMin = cfg.cierre.diasCierre * jornadaMinutos(cfg.horario);
+
+  const resueltos = await db.query.tickets.findMany({
+    where: eq(tickets.estado, ESTADO.RESUELTO),
+    with: { usuario: true, mensajesChat: true },
+  });
+
+  const cerrados: string[] = [];
+  for (const t of resueltos) {
+    if (!t.fechaResolucion) continue;
+    if (minutosHabilesEntre(new Date(t.fechaResolucion), ahora, cfg) < maxMin) continue;
+
+    const respondio = t.mensajesChat.some(
+      (m) => m.usuarioId === t.usuarioId && new Date(m.fechaCreacion) > new Date(t.fechaResolucion!),
+    );
+    if (respondio) continue;
+
+    await db
+      .update(tickets)
+      .set({ estado: ESTADO.CERRADO, fechaCierre: ahora, cerradoSinRespuesta: true })
+      .where(and(eq(tickets.id, t.id), eq(tickets.estado, ESTADO.RESUELTO)));
+
+    await db.insert(historial).values({
+      ticketId: t.id,
+      usuarioId: null, // lo hizo el sistema
+      tipo: 'CIERRE_AUTOMATICO',
+      valorAnterior: ESTADO_LABELS[ESTADO.RESUELTO],
+      valorNuevo: ESTADO_LABELS[ESTADO.CERRADO],
+      descripcion: `Cerrado automáticamente sin respuesta del usuario: pasaron ${cfg.cierre.diasCierre} días hábiles desde que se le comunicó la solución`,
+    });
+
+    if (t.usuario?.numeroWhatsApp) {
+      await notificarTicketCerrado(t.usuario.numeroWhatsApp, t.numero);
+    }
+    cerrados.push(t.numero);
+  }
+  return { revisados: resueltos.length, cerrados };
 }

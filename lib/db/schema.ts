@@ -94,6 +94,16 @@ export const tickets = pgTable('tickets', {
   fechaPrimeraRespuesta: timestamp('fechaPrimeraRespuesta'),
   // Obligatorio para cerrar un ticket Crítico que superó su plazo de resolución.
   motivoDesvio: text('motivoDesvio'),
+  // Cuándo pasó a un estado final (Cerrado o Cancelado). Desde acá corren el
+  // plazo de reapertura y la conservación de 3 años.
+  fechaCierre: timestamp('fechaCierre'),
+  reaperturas: integer('reaperturas').notNull().default(0),
+  // Cerrado automáticamente porque el usuario no respondió a la solución.
+  cerradoSinRespuesta: boolean('cerradoSinRespuesta').notNull().default(false),
+  // Ticket del que este es continuación (reapertura fuera de plazo o falla
+  // repetida). Sin .references() para evitar la referencia circular de
+  // tipos; la FK existe en la migración.
+  ticketAnteriorId: uuid('ticketAnteriorId'),
 });
 
 // Parámetros editables desde el panel (horario laboral, plazos). Cada fila
@@ -203,6 +213,13 @@ export const ticketsRelations = relations(tickets, ({ one, many }) => ({
   adjuntos: many(adjuntos),
   historiales: many(historial),
   mensajesChat: many(mensajesChat),
+  // Ticket del que este es continuación, y los que continúan a este.
+  ticketAnterior: one(tickets, {
+    fields: [tickets.ticketAnteriorId],
+    references: [tickets.id],
+    relationName: 'continuacion',
+  }),
+  continuaciones: many(tickets, { relationName: 'continuacion' }),
 }));
 
 export const mensajesChatRelations = relations(mensajesChat, ({ one }) => ({

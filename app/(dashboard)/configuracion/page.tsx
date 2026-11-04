@@ -19,6 +19,10 @@ interface Plazo {
   primeraMin: number;
   resolucionMin: number;
 }
+interface Cierre {
+  diasCierre: number;
+  diasReapertura: number;
+}
 interface Feriado {
   fecha: string;
   nombre: string;
@@ -43,6 +47,7 @@ export default function ConfiguracionPage() {
   const [horario, setHorario] = useState<Horario | null>(null);
   const [plazos, setPlazos] = useState<Record<number, Plazo>>({});
   const [feriados, setFeriados] = useState<Feriado[]>([]);
+  const [cierre, setCierre] = useState<Cierre>({ diasCierre: 3, diasReapertura: 5 });
   const [loading, setLoading] = useState(true);
   const [guardando, setGuardando] = useState(false);
   const [nuevaFecha, setNuevaFecha] = useState('');
@@ -54,6 +59,7 @@ export default function ConfiguracionPage() {
       setHorario(res.data.horario);
       setPlazos(res.data.plazos);
       setFeriados(res.data.feriados);
+      setCierre(res.data.cierre);
     } catch {
       toast.error('Error al cargar la configuración');
     } finally {
@@ -87,7 +93,7 @@ export default function ConfiguracionPage() {
   const guardar = async () => {
     setGuardando(true);
     try {
-      await api.put('/configuracion', { horario, plazos });
+      await api.put('/configuracion', { horario, plazos, cierre });
       toast.success('Configuración guardada');
     } catch (err: any) {
       toast.error(err.response?.data?.message || 'No se pudo guardar');
@@ -209,13 +215,45 @@ export default function ConfiguracionPage() {
         </table>
       </div>
 
+      {/* Cierre y reapertura */}
+      <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 space-y-4">
+        <div>
+          <h2 className="text-white font-medium">Cierre y reapertura</h2>
+          <p className="text-gray-500 text-xs mt-1">En días hábiles.</p>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
+          <label className="space-y-1 block">
+            <span className="text-gray-400">Cierre automático sin respuesta del usuario</span>
+            <input
+              type="number"
+              min={1}
+              value={cierre.diasCierre}
+              onChange={(e) => setCierre({ ...cierre, diasCierre: Math.max(1, Math.round(Number(e.target.value))) })}
+              className={`${input} w-28 block`}
+            />
+            <span className="text-gray-600 text-xs">Un ticket Resuelto se cierra solo pasado este plazo</span>
+          </label>
+          <label className="space-y-1 block">
+            <span className="text-gray-400">Plazo para reabrir el mismo ticket</span>
+            <input
+              type="number"
+              min={1}
+              value={cierre.diasReapertura}
+              onChange={(e) => setCierre({ ...cierre, diasReapertura: Math.max(1, Math.round(Number(e.target.value))) })}
+              className={`${input} w-28 block`}
+            />
+            <span className="text-gray-600 text-xs">Después hay que crear un ticket nuevo vinculado</span>
+          </label>
+        </div>
+      </div>
+
       <button
         onClick={guardar}
         disabled={guardando}
         className="px-5 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium disabled:opacity-50 inline-flex items-center gap-2"
       >
         {guardando && <Loader2 className="w-4 h-4 animate-spin" />}
-        Guardar horario y plazos
+        Guardar horario, plazos y cierre
       </button>
 
       {/* Feriados */}

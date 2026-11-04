@@ -30,8 +30,17 @@ export function plazosPorDefecto(horario: Horario = HORARIO_POR_DEFECTO): Plazos
   };
 }
 
+// Cierre sin respuesta del usuario y ventana de reapertura, en días hábiles.
+export interface ParametrosCierre {
+  diasCierre: number; // Resuelto sin respuesta -> Cerrado
+  diasReapertura: number; // plazo para reabrir el mismo ticket tras el cierre
+}
+
+export const PARAMETROS_CIERRE_POR_DEFECTO: ParametrosCierre = { diasCierre: 3, diasReapertura: 5 };
+
 export interface ConfigPlazos extends ConfigHorario {
   plazos: PlazosPorPrioridad;
+  cierre: ParametrosCierre;
 }
 
 export type EstadoPlazo =
@@ -143,6 +152,30 @@ export function calcularSla(t: TicketParaSla, cfg: ConfigPlazos, ahora: Date = n
     ORDEN_RESUMEN.find((e) => respuesta.estado === e || resolucion.estado === e) ?? 'no_aplica';
 
   return { respuesta, resolucion, resumen };
+}
+
+export interface Reapertura {
+  permitida: boolean;
+  limite: string | null; // hasta cuándo se puede reabrir
+}
+
+// ¿Se puede reabrir este ticket Cerrado? Solo dentro de N días hábiles
+// posteriores al cierre; pasado ese plazo hay que crear un ticket nuevo
+// vinculado.
+export function calcularReapertura(
+  t: { estado: number; fechaCierre?: Date | string | null; fechaResolucion?: Date | string | null },
+  cfg: ConfigPlazos,
+  ahora: Date = new Date(),
+): Reapertura | null {
+  if (t.estado !== 4) return null;
+  const base = t.fechaCierre ?? t.fechaResolucion;
+  if (!base) return { permitida: false, limite: null };
+  const maxMin = cfg.cierre.diasReapertura * jornadaMinutos(cfg.horario);
+  const limite = sumarMinutosHabiles(new Date(base), maxMin, cfg);
+  return {
+    permitida: minutosHabilesEntre(new Date(base), ahora, cfg) <= maxMin,
+    limite: limite?.toISOString() ?? null,
+  };
 }
 
 export const ESTADO_PLAZO_LABELS: Record<EstadoPlazo, string> = {

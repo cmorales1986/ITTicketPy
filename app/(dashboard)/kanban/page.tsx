@@ -218,6 +218,21 @@ export default function KanbanPage() {
                                 </div>
                               )}
 
+                              {(ticket.reaperturas > 0 || ticket.cerradoSinRespuesta) && (
+                                <div className="mt-2 flex flex-wrap gap-1">
+                                  {ticket.reaperturas > 0 && (
+                                    <span className="text-xs px-2 py-0.5 rounded-full bg-orange-500/10 text-orange-400 font-medium">
+                                      Reabierto {ticket.reaperturas} {ticket.reaperturas === 1 ? 'vez' : 'veces'}
+                                    </span>
+                                  )}
+                                  {ticket.cerradoSinRespuesta && (
+                                    <span className="text-xs px-2 py-0.5 rounded-full bg-gray-500/10 text-gray-400 font-medium">
+                                      Cerrado sin respuesta
+                                    </span>
+                                  )}
+                                </div>
+                              )}
+
                               {ticket.dependeProveedor && (
                                 <div className="mt-2">
                                   <span className="text-xs px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-400 font-medium">

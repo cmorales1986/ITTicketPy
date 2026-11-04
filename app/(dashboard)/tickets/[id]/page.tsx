@@ -25,6 +25,7 @@ import {
   URGENCIA_LABELS,
 } from "@/lib/tickets/estados";
 import { ESTADO_PLAZO_COLORS, ESTADO_PLAZO_LABELS, formatearMinutos } from "@/lib/tickets/plazos";
+import NuevoTicketModal from "@/components/tickets/NuevoTicketModal";
 import Timeline from "@/components/tickets/Timeline";
 import Estrellas from "@/components/tickets/Estrellas";
 import { useAuthStore } from "@/store/auth.store";
@@ -84,6 +85,7 @@ export default function TicketDetallePage() {
   // confirmarse (Resuelto: solución, Cancelado: motivo).
   const [estadoPendiente, setEstadoPendiente] = useState<number | null>(null);
   const [textoEstado, setTextoEstado] = useState("");
+  const [modalVinculado, setModalVinculado] = useState(false);
 
   useEffect(() => {
     fetchData();
@@ -116,6 +118,8 @@ export default function TicketDetallePage() {
         estado,
         ...(estado === ESTADO.RESUELTO ? { solucion: texto } : {}),
         ...(estado === ESTADO.CANCELADO ? { motivoCancelacion: texto } : {}),
+        // Reapertura (desde Cerrado) u objeción de la solución (desde Resuelto).
+        ...(estado === ESTADO.EN_PROCESO && texto ? { motivoReapertura: texto } : {}),
       };
       try {
         await api.put(`/tickets/${id}`, cuerpo);
@@ -138,7 +142,9 @@ export default function TicketDetallePage() {
   };
 
   const elegirEstado = (estado: number) => {
-    if (estado === ESTADO.RESUELTO || estado === ESTADO.CANCELADO) {
+    const vuelveAEnProceso =
+      estado === ESTADO.EN_PROCESO && (ticket?.estado === ESTADO.CERRADO || ticket?.estado === ESTADO.RESUELTO);
+    if (estado === ESTADO.RESUELTO || estado === ESTADO.CANCELADO || vuelveAEnProceso) {
       setEstadoPendiente(estado);
       setTextoEstado("");
       return;
@@ -304,9 +310,51 @@ export default function TicketDetallePage() {
                 Depende de proveedor
               </span>
             )}
+            {ticket.cerradoSinRespuesta && (
+              <span className="text-xs px-2 py-1 rounded-full font-medium bg-gray-500/10 text-gray-400">
+                Cerrado sin respuesta del usuario
+              </span>
+            )}
+            {ticket.reaperturas > 0 && (
+              <span className="text-xs px-2 py-1 rounded-full font-medium bg-orange-500/10 text-orange-400">
+                Reabierto {ticket.reaperturas} {ticket.reaperturas === 1 ? "vez" : "veces"}
+              </span>
+            )}
             <Estrellas calificacion={ticket.calificacion} size="md" />
           </div>
           <h1 className="text-xl font-bold text-white mt-1">{ticket.titulo}</h1>
+          {(ticket.ticketAnterior || (ticket.continuaciones?.length ?? 0) > 0) && (
+            <p className="text-xs mt-1 text-gray-400">
+              {ticket.ticketAnterior && (
+                <>
+                  Continuación de{" "}
+                  <button
+                    onClick={() => router.push(`/tickets/${ticket.ticketAnterior!.id}`)}
+                    className="text-blue-400 hover:text-blue-300 font-mono"
+                  >
+                    {ticket.ticketAnterior.numero}
+                  </button>
+                </>
+              )}
+              {ticket.ticketAnterior && (ticket.continuaciones?.length ?? 0) > 0 && " · "}
+              {(ticket.continuaciones?.length ?? 0) > 0 && (
+                <>
+                  Continuado en{" "}
+                  {ticket.continuaciones!.map((c, i) => (
+                    <span key={c.id}>
+                      {i > 0 && ", "}
+                      <button
+                        onClick={() => router.push(`/tickets/${c.id}`)}
+                        className="text-blue-400 hover:text-blue-300 font-mono"
+                      >
+                        {c.numero}
+                      </button>
+                    </span>
+                  ))}
+                </>
+              )}
+            </p>
+          )}
           <p className="text-gray-500 text-xs mt-1">
             {TIPO_LABELS[ticket.tipo] ?? "Incidente / Soporte"}
             {" · "}
@@ -708,7 +756,12 @@ export default function TicketDetallePage() {
                 </h3>
                 <div className="grid grid-cols-2 gap-2">
                   {/* Estado actual + solo las transiciones permitidas */}
-                  {[ticket.estado, ...(TRANSICIONES[ticket.estado] ?? [])].map((estado) => (
+                  {[
+                    ticket.estado,
+                    ...(TRANSICIONES[ticket.estado] ?? []).filter(
+                      (e) => !(ticket.estado === ESTADO.CERRADO && e === ESTADO.EN_PROCESO && ticket.reapertura && !ticket.reapertura.permitida),
+                    ),
+                  ].map((estado) => (
                     <button
                       key={estado}
                       onClick={() => elegirEstado(estado)}
@@ -730,12 +783,40 @@ export default function TicketDetallePage() {
                   ))}
                 </div>
 
+                {ticket.estado === ESTADO.CERRADO && ticket.reapertura && (
+                  <div className="text-xs pt-1 space-y-2">
+                    {ticket.reapertura.permitida ? (
+                      <p className="text-gray-500">
+                        Se puede reabrir hasta el{" "}
+                        {ticket.reapertura.limite ? format(new Date(ticket.reapertura.limite), "dd/MM HH:mm") : "—"}{" "}
+                        (días hábiles desde el cierre).
+                      </p>
+                    ) : (
+                      <>
+                        <p className="text-orange-400">
+                          Pasó el plazo para reabrir este ticket. Si el problema volvió, creá uno nuevo vinculado.
+                        </p>
+                        <button
+                          onClick={() => setModalVinculado(true)}
+                          className="w-full py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium"
+                        >
+                          Crear ticket nuevo vinculado
+                        </button>
+                      </>
+                    )}
+                  </div>
+                )}
+
                 {estadoPendiente !== null && (
                   <div className="space-y-2 pt-1">
                     <label className="text-xs text-gray-400 block">
                       {estadoPendiente === ESTADO.RESUELTO
                         ? "Solución aplicada *"
-                        : "Motivo de la cancelación *"}
+                        : estadoPendiente === ESTADO.CANCELADO
+                          ? "Motivo de la cancelación *"
+                          : ticket.estado === ESTADO.CERRADO
+                            ? "Motivo de la reapertura *"
+                            : "Qué objetó el usuario *"}
                     </label>
                     <textarea
                       value={textoEstado}
@@ -943,6 +1024,18 @@ export default function TicketDetallePage() {
           )}
         </div>
       </div>
+
+      <NuevoTicketModal
+        open={modalVinculado}
+        onClose={() => setModalVinculado(false)}
+        categorias={categorias}
+        puedeElegirUsuario
+        ticketAnterior={ticket}
+        onCreated={() => {
+          setModalVinculado(false);
+          router.push("/tickets");
+        }}
+      />
     </div>
   );
 }

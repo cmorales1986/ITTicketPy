@@ -7,7 +7,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
 import api from '@/lib/axios';
-import { Categoria, Usuario } from '@/types';
+import { Categoria, Ticket, Usuario } from '@/types';
 import { X, Loader2 } from 'lucide-react';
 import { TIPO_LABELS, URGENCIA_LABELS } from '@/lib/tickets/estados';
 
@@ -34,9 +34,12 @@ interface Props {
   // Técnicos/admins pueden cargar el ticket a nombre de otro usuario (ej.
   // alguien reportó el problema por teléfono en vez de escribir).
   puedeElegirUsuario?: boolean;
+  // Si se pasa, el ticket nuevo queda vinculado a este (reapertura fuera de
+  // plazo): hereda el solicitante y el sistema/módulo.
+  ticketAnterior?: Ticket;
 }
 
-export default function NuevoTicketModal({ open, onClose, categorias, onCreated, puedeElegirUsuario }: Props) {
+export default function NuevoTicketModal({ open, onClose, categorias, onCreated, puedeElegirUsuario, ticketAnterior }: Props) {
   const [loading, setLoading] = useState(false);
   const [usuarios, setUsuarios] = useState<Usuario[]>([]);
 
@@ -46,19 +49,36 @@ export default function NuevoTicketModal({ open, onClose, categorias, onCreated,
   });
 
   useEffect(() => {
-    if (open && puedeElegirUsuario) {
+    if (open && ticketAnterior) {
+      reset({
+        titulo: `Continuación de ${ticketAnterior.numero}: ${ticketAnterior.titulo}`,
+        descripcion: '',
+        prioridad: ticketAnterior.prioridad,
+        categoriaId: ticketAnterior.categoriaId ?? '',
+        canal: 'LLAMADA',
+        tipo: ticketAnterior.tipo,
+        sistemaModulo: ticketAnterior.sistemaModulo ?? '',
+        urgencia: ticketAnterior.urgencia ?? 2,
+      });
+    }
+  }, [open, ticketAnterior, reset]);
+
+  useEffect(() => {
+    if (open && puedeElegirUsuario && !ticketAnterior) {
       api.get('/usuarios')
         .then((res) => setUsuarios(res.data.filter((u: Usuario) => u.activo)))
         .catch(() => toast.error('Error al cargar usuarios'));
     }
-  }, [open, puedeElegirUsuario]);
+  }, [open, puedeElegirUsuario, ticketAnterior]);
 
   const onSubmit = async (data: FormData) => {
     setLoading(true);
     try {
       await api.post('/tickets', {
         ...data,
-        usuarioId: data.usuarioId || undefined,
+        // Un ticket vinculado conserva al solicitante del anterior.
+        usuarioId: ticketAnterior ? ticketAnterior.usuarioId : data.usuarioId || undefined,
+        ticketAnteriorId: ticketAnterior?.id,
         // Los clientes no eligen canal: el servidor lo registra como PORTAL.
         canal: puedeElegirUsuario ? data.canal : undefined,
       });
@@ -80,7 +100,7 @@ export default function NuevoTicketModal({ open, onClose, categorias, onCreated,
 
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-gray-800">
-          <h2 className="text-white font-semibold text-lg">Nuevo ticket</h2>
+          <h2 className="text-white font-semibold text-lg">{ticketAnterior ? 'Nuevo ticket vinculado' : 'Nuevo ticket'}</h2>
           <button onClick={onClose} className="text-gray-400 hover:text-white transition">
             <X className="w-5 h-5" />
           </button>
@@ -89,7 +109,13 @@ export default function NuevoTicketModal({ open, onClose, categorias, onCreated,
         {/* Form */}
         <form onSubmit={handleSubmit(onSubmit)} className="p-6 space-y-4">
 
-          {puedeElegirUsuario && (
+          {ticketAnterior && (
+            <p className="text-xs text-blue-300 bg-blue-500/10 rounded-lg px-3 py-2">
+              Vinculado a {ticketAnterior.numero}. Reportado por {ticketAnterior.usuario?.nombre ?? 'el mismo solicitante'}.
+            </p>
+          )}
+
+          {puedeElegirUsuario && !ticketAnterior && (
             <div>
               <label className="text-sm text-gray-400 mb-1 block">Reportado por</label>
               <select
