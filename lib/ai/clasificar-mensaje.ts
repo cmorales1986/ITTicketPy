@@ -13,7 +13,7 @@ export type ClasificacionMensaje = 'SOPORTE' | 'SALUDO' | 'OTRO';
 // Saludo suelto, sin contenido: lo detectamos también sin IA para que el bot
 // conteste aunque falle o no esté configurada la clave de Anthropic.
 const SALUDO_SIMPLE =
-  /^\s*(hola+|buen[oa]s?( (d[ií]as?|tardes?|noches?))?|hey|ola|holi|qu[eé] tal|saludos)[\s!¡.,?¿]*$/i;
+  /^\s*(hola+|buen[oa]?s?( (d[ií]as?|tardes?|noches?))?|hey|ola|holi|qu[eé] tal|saludos)[\s!¡.,?¿]*$/i;
 
 // Filtra los mensajes entrantes de WhatsApp para que solo los que realmente
 // reportan un problema técnico generen un ticket — el número también lo
