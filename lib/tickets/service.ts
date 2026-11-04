@@ -91,6 +91,9 @@ export interface CreateTicketInput {
   // Lugar de origen (OFICINA | GRANJA) y cuándo se recibió el reporte.
   lugarOrigen?: string;
   fechaRecepcion?: Date;
+  // Registro a posteriori de un ticket que ya se resolvió (histórico): se crea
+  // directamente Cerrado, con la solución y la fecha en que se resolvió.
+  retroactivo?: { solucion: string; fechaSolucion: Date };
 }
 
 export interface UpdateTicketInput {
@@ -323,13 +326,33 @@ export async function createTicket(
 ) {
   const numero = await generateNumero();
   const usuario = await db.query.usuarios.findFirst({ where: eq(usuarios.id, usuarioId) });
+  const { retroactivo, ...datos } = dto;
 
   const [ticket] = await db
     .insert(tickets)
     // El ticket hereda la empresa del usuario que lo crea. Si el usuario
     // todavía no tiene empresa asignada (p. ej. contacto nuevo por
     // WhatsApp), el ticket queda sin empresa hasta que un admin la complete.
-    .values({ ...dto, numero, usuarioId, empresaId: usuario?.empresaId })
+    .values({
+      ...datos,
+      numero,
+      usuarioId,
+      empresaId: usuario?.empresaId,
+      ...(retroactivo
+        ? {
+            // La fecha del ticket es la del reporte original, para que los
+            // listados y reportes lo ubiquen en su período. La primera
+            // respuesta no se conoce: se toma la fecha de solución.
+            fechaCreacion: dto.fechaRecepcion ?? retroactivo.fechaSolucion,
+            estado: ESTADO.CERRADO,
+            solucion: retroactivo.solucion,
+            fechaResolucion: retroactivo.fechaSolucion,
+            fechaCierre: retroactivo.fechaSolucion,
+            fechaPrimeraRespuesta: retroactivo.fechaSolucion,
+            cerradoSinRespuesta: false,
+          }
+        : {}),
+    })
     .returning();
 
   const anterior = dto.ticketAnteriorId
@@ -352,6 +375,21 @@ export async function createTicket(
       'VINCULO',
       `Se creó el ticket ${ticket.numero} como continuación de este`,
     );
+  }
+
+  if (retroactivo) {
+    // El historial es inmutable y guarda cuándo se hizo el registro real; la
+    // fecha de la solución va en el texto.
+    await registrarHistorial(
+      ticket.id,
+      actorId ?? usuarioId,
+      'ESTADO',
+      `Ticket antiguo registrado a posteriori: resuelto y cerrado el ${retroactivo.fechaSolucion.toLocaleString('es-PY', { timeZone: 'America/Asuncion' })}`,
+      ESTADO_LABELS[ESTADO.NUEVO],
+      ESTADO_LABELS[ESTADO.CERRADO],
+    );
+    // Es un registro histórico: no se avisa a nadie por WhatsApp.
+    return ticket;
   }
 
   if (usuario?.numeroWhatsApp) {

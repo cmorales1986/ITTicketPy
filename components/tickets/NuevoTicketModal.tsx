@@ -7,8 +7,8 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
 import api from '@/lib/axios';
-import { Categoria, Ticket, Usuario } from '@/types';
-import { X, Loader2 } from 'lucide-react';
+import { Categoria, Empresa, Ticket, Usuario } from '@/types';
+import { X, Loader2, UserPlus } from 'lucide-react';
 import { LUGAR_LABELS, SISTEMAS_AFECTADOS, TIPO_LABELS, TIPOS_ORDEN, URGENCIA_LABELS } from '@/lib/tickets/estados';
 
 // Un sistema guardado como "Otro: detalle" vuelve a separarse en el select y
@@ -33,7 +33,21 @@ const schema = z.object({
   // Solo cuando el equipo carga el ticket a mano (correo o llamada).
   lugarOrigen: z.enum(['OFICINA', 'GRANJA']).optional(),
   fechaRecepcion: z.string().optional(),
+  // Ticket antiguo ya resuelto: se registra directamente Cerrado.
+  esAntiguo: z.boolean().optional(),
+  solucion: z.string().optional(),
+  fechaSolucion: z.string().optional(),
 }).superRefine((d, ctx) => {
+  if (d.esAntiguo) {
+    if ((d.solucion?.trim().length ?? 0) < 5) {
+      ctx.addIssue({ code: 'custom', path: ['solucion'], message: 'Indicá la solución aplicada (mínimo 5 caracteres)' });
+    }
+    if (!d.fechaSolucion) {
+      ctx.addIssue({ code: 'custom', path: ['fechaSolucion'], message: 'Indicá cuándo se resolvió' });
+    } else if (d.fechaRecepcion && d.fechaSolucion < d.fechaRecepcion) {
+      ctx.addIssue({ code: 'custom', path: ['fechaSolucion'], message: 'No puede ser anterior a la recepción' });
+    }
+  }
   if (d.sistemaModulo === 'Otro' && !d.sistemaOtro?.trim()) {
     ctx.addIssue({ code: 'custom', path: ['sistemaOtro'], message: 'Indicá cuál' });
   }
@@ -64,13 +78,18 @@ interface Props {
 export default function NuevoTicketModal({ open, onClose, categorias, onCreated, puedeElegirUsuario, ticketAnterior }: Props) {
   const [loading, setLoading] = useState(false);
   const [usuarios, setUsuarios] = useState<Usuario[]>([]);
+  const [empresas, setEmpresas] = useState<Empresa[]>([]);
+  const [nuevoUsuarioAbierto, setNuevoUsuarioAbierto] = useState(false);
+  const [nuevoUsuario, setNuevoUsuario] = useState({ nombre: '', numeroWhatsApp: '', email: '', empresaId: '' });
+  const [creandoUsuario, setCreandoUsuario] = useState(false);
 
-  const { register, handleSubmit, reset, control, formState: { errors } } = useForm<FormData>({
+  const { register, handleSubmit, reset, control, setValue, formState: { errors } } = useForm<FormData>({
     resolver: zodResolver(schema),
     defaultValues: { prioridad: 2, tipo: 1, urgencia: 2, canal: 'LLAMADA', sistemaModulo: '', lugarOrigen: 'OFICINA', fechaRecepcion: ahoraLocal() },
   });
 
   const sistemaElegido = useWatch({ control, name: 'sistemaModulo' });
+  const esAntiguo = useWatch({ control, name: 'esAntiguo' });
 
   useEffect(() => {
     if (open && ticketAnterior) {
@@ -94,8 +113,39 @@ export default function NuevoTicketModal({ open, onClose, categorias, onCreated,
       api.get('/usuarios')
         .then((res) => setUsuarios(res.data.filter((u: Usuario) => u.activo)))
         .catch(() => toast.error('Error al cargar usuarios'));
+      api.get('/empresas')
+        .then((res) => setEmpresas(res.data.filter((e: Empresa) => e.activa)))
+        .catch(() => toast.error('Error al cargar empresas'));
     }
   }, [open, puedeElegirUsuario, ticketAnterior]);
+
+  // Alta rápida de un contacto desde el formulario: queda elegido como
+  // "Reportado por".
+  const crearUsuario = async () => {
+    if (nuevoUsuario.nombre.trim().length < 2) {
+      toast.error('Escribí el nombre del usuario');
+      return;
+    }
+    setCreandoUsuario(true);
+    try {
+      const res = await api.post('/usuarios', {
+        nombre: nuevoUsuario.nombre,
+        numeroWhatsApp: nuevoUsuario.numeroWhatsApp || undefined,
+        email: nuevoUsuario.email || undefined,
+        empresaId: nuevoUsuario.empresaId || undefined,
+      });
+      const creado: Usuario = { ...res.data, rol: 0, activo: true };
+      setUsuarios((prev) => [...prev, creado]);
+      setValue('usuarioId', creado.id);
+      setNuevoUsuario({ nombre: '', numeroWhatsApp: '', email: '', empresaId: '' });
+      setNuevoUsuarioAbierto(false);
+      toast.success('Usuario creado');
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'Error al crear el usuario');
+    } finally {
+      setCreandoUsuario(false);
+    }
+  };
 
   const onSubmit = async (data: FormData) => {
     setLoading(true);
@@ -111,6 +161,13 @@ export default function NuevoTicketModal({ open, onClose, categorias, onCreated,
         sistemaOtro: undefined,
         lugarOrigen: puedeElegirUsuario ? data.lugarOrigen : undefined,
         fechaRecepcion: puedeElegirUsuario && data.fechaRecepcion ? new Date(data.fechaRecepcion).toISOString() : undefined,
+        retroactivo:
+          puedeElegirUsuario && data.esAntiguo
+            ? { solucion: data.solucion!.trim(), fechaSolucion: new Date(data.fechaSolucion!).toISOString() }
+            : undefined,
+        esAntiguo: undefined,
+        solucion: undefined,
+        fechaSolucion: undefined,
       });
       toast.success('Ticket creado correctamente');
       reset();
@@ -158,6 +215,57 @@ export default function NuevoTicketModal({ open, onClose, categorias, onCreated,
                 ))}
               </select>
               <p className="text-gray-600 text-xs mt-1">Elegí a otro usuario si estás cargando el ticket por él/ella (ej. reportó por teléfono)</p>
+              <button
+                type="button"
+                onClick={() => setNuevoUsuarioAbierto((v) => !v)}
+                className="mt-2 inline-flex items-center gap-1.5 text-xs text-blue-400 hover:text-blue-300"
+              >
+                <UserPlus className="w-3.5 h-3.5" />
+                {nuevoUsuarioAbierto ? 'Cancelar nuevo usuario' : 'Agregar usuario nuevo'}
+              </button>
+              {nuevoUsuarioAbierto && (
+                <div className="mt-2 space-y-2 rounded-lg border border-gray-700 bg-gray-800/50 p-3">
+                  <input
+                    value={nuevoUsuario.nombre}
+                    onChange={(e) => setNuevoUsuario({ ...nuevoUsuario, nombre: e.target.value })}
+                    placeholder="Nombre completo *"
+                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white placeholder-gray-500 text-sm focus:outline-none focus:border-blue-500"
+                  />
+                  <select
+                    value={nuevoUsuario.empresaId}
+                    onChange={(e) => setNuevoUsuario({ ...nuevoUsuario, empresaId: e.target.value })}
+                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
+                  >
+                    <option value="">Sin empresa</option>
+                    {empresas.map((e) => (
+                      <option key={e.id} value={e.id}>{e.nombre}</option>
+                    ))}
+                  </select>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <input
+                      value={nuevoUsuario.numeroWhatsApp}
+                      onChange={(e) => setNuevoUsuario({ ...nuevoUsuario, numeroWhatsApp: e.target.value })}
+                      placeholder="WhatsApp (595981...)"
+                      className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white placeholder-gray-500 text-sm focus:outline-none focus:border-blue-500"
+                    />
+                    <input
+                      value={nuevoUsuario.email}
+                      onChange={(e) => setNuevoUsuario({ ...nuevoUsuario, email: e.target.value })}
+                      placeholder="Email (opcional)"
+                      className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white placeholder-gray-500 text-sm focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={crearUsuario}
+                    disabled={creandoUsuario}
+                    className="w-full bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-white text-sm py-2 rounded-lg flex items-center justify-center gap-2"
+                  >
+                    {creandoUsuario && <Loader2 className="w-4 h-4 animate-spin" />}
+                    Crear y elegir
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
@@ -295,6 +403,41 @@ export default function NuevoTicketModal({ open, onClose, categorias, onCreated,
               <p className="text-gray-600 text-xs sm:col-span-2">
                 Los plazos se cuentan desde la recepción del reporte y con el horario del lugar de origen.
               </p>
+            </div>
+          )}
+
+          {puedeElegirUsuario && !ticketAnterior && (
+            <div className="rounded-lg border border-gray-700 p-3 space-y-3">
+              <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
+                <input type="checkbox" {...register('esAntiguo')} className="rounded" />
+                Es un ticket antiguo que ya se resolvió
+              </label>
+              {esAntiguo && (
+                <>
+                  <p className="text-gray-500 text-xs">
+                    Se registra directamente como Cerrado, con la fecha de recepción de arriba como fecha del ticket. No se avisa a nadie por WhatsApp.
+                  </p>
+                  <div>
+                    <label className="text-sm text-gray-400 mb-1 block">Fecha y hora de la solución *</label>
+                    <input
+                      type="datetime-local"
+                      {...register('fechaSolucion')}
+                      className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-blue-500 text-sm"
+                    />
+                    {errors.fechaSolucion && <p className="text-red-400 text-xs mt-1">{errors.fechaSolucion.message}</p>}
+                  </div>
+                  <div>
+                    <label className="text-sm text-gray-400 mb-1 block">Solución aplicada *</label>
+                    <textarea
+                      {...register('solucion')}
+                      rows={3}
+                      placeholder="Qué se hizo para resolverlo..."
+                      className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 text-sm resize-none"
+                    />
+                    {errors.solucion && <p className="text-red-400 text-xs mt-1">{errors.solucion.message}</p>}
+                  </div>
+                </>
+              )}
             </div>
           )}
 

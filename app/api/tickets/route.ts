@@ -27,6 +27,13 @@ const createTicketSchema = z.object({
   urgencia: z.number().min(1).max(4),
   // Continuación de un ticket anterior (reapertura fuera de plazo).
   ticketAnteriorId: optionalUuid,
+  // Registro de un ticket antiguo ya resuelto (solo equipo): se crea Cerrado.
+  retroactivo: z
+    .object({
+      solucion: z.string().trim().min(5),
+      fechaSolucion: z.string().datetime({ offset: true }),
+    })
+    .optional(),
 });
 
 export async function GET(request: NextRequest) {
@@ -83,7 +90,25 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ message: 'La fecha de recepción no puede ser futura' }, { status: 400 });
     }
   }
-  const dto = { ...resto, canal, fechaRecepcion };
+  const { retroactivo: retroactivoIn, ...restoSinRetro } = resto;
+  let retroactivo: { solucion: string; fechaSolucion: Date } | undefined;
+  if (retroactivoIn) {
+    if (session.rol < 1 || !fechaRecepcion) {
+      return NextResponse.json({ message: 'No autorizado para registrar tickets antiguos' }, { status: 403 });
+    }
+    const fechaSolucion = new Date(retroactivoIn.fechaSolucion);
+    if (fechaSolucion.getTime() > Date.now() + 5 * 60 * 1000) {
+      return NextResponse.json({ message: 'La fecha de solución no puede ser futura' }, { status: 400 });
+    }
+    if (fechaSolucion.getTime() < fechaRecepcion.getTime()) {
+      return NextResponse.json(
+        { message: 'La fecha de solución no puede ser anterior a la de recepción' },
+        { status: 400 },
+      );
+    }
+    retroactivo = { solucion: retroactivoIn.solucion, fechaSolucion };
+  }
+  const dto = { ...restoSinRetro, canal, fechaRecepcion, retroactivo };
 
   let usuarioTicket = session.sub;
   if (reportanteId && reportanteId !== session.sub) {
