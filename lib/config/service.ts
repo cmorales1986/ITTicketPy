@@ -35,7 +35,13 @@ export async function obtenerPlazos(horario?: Horario): Promise<PlazosPorPriorid
 }
 
 export async function listarFeriados() {
-  return db.select().from(feriados).orderBy(feriados.fecha);
+  const filas = await db.select().from(feriados).orderBy(feriados.fecha);
+  // Siempre "YYYY-MM-DD", aunque el driver devuelva un Date: el cálculo de
+  // horas hábiles compara contra esa forma exacta.
+  return filas.map((f) => ({
+    ...f,
+    fecha: (typeof f.fecha === 'string' ? f.fecha : new Date(f.fecha).toISOString()).slice(0, 10),
+  }));
 }
 
 export async function obtenerConfigPlazos(): Promise<ConfigPlazos> {
