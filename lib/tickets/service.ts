@@ -1,6 +1,6 @@
 import { and, count, eq, gte, isNull, lt, lte, notInArray, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { tickets, comentarios, historial, usuarios, adjuntos, mensajesChat, aprobaciones } from '@/lib/db/schema';
+import { tickets, comentarios, historial, usuarios, adjuntos, mensajesChat, aprobaciones, empresas } from '@/lib/db/schema';
 import {
   notificarTicketCreado,
   notificarEquipoTicketNuevo,
@@ -159,6 +159,27 @@ async function registrarHistorial(
     valorAnterior,
     valorNuevo,
   });
+}
+
+// Asigna el ticket al técnico predeterminado de la empresa, si lo hay y sigue
+// activo y es técnico (rol 1 o 3). Devuelve el id del técnico asignado.
+async function autoasignarPorEmpresa(ticketId: string, empresaId: string | null | undefined, actorId: string) {
+  if (!empresaId) return null;
+  const empresa = await db.query.empresas.findFirst({ where: eq(empresas.id, empresaId) });
+  if (!empresa?.tecnicoPredeterminadoId) return null;
+  const tecnico = await db.query.usuarios.findFirst({ where: eq(usuarios.id, empresa.tecnicoPredeterminadoId) });
+  if (!tecnico || !tecnico.activo || ![1, 3].includes(tecnico.rol)) return null;
+
+  await db.update(tickets).set({ tecnicoAsignadoId: tecnico.id }).where(eq(tickets.id, ticketId));
+  await registrarHistorial(
+    ticketId,
+    actorId,
+    'ASIGNACION',
+    `Asignado automáticamente a ${tecnico.nombre} (técnico de ${empresa.nombre})`,
+    'Sin asignar',
+    tecnico.nombre,
+  );
+  return tecnico.id;
 }
 
 // soloDeUsuarioId: un cliente (rol 0) solo debe ver sus propios tickets acá
@@ -354,6 +375,12 @@ export async function createTicket(
         : {}),
     })
     .returning();
+
+  // Si la empresa tiene un técnico predeterminado, el ticket se le asigna solo.
+  // Queda en Nuevo: asignar no cuenta como primera respuesta (esa la marca el
+  // técnico cuando lo toma) y no se manda aviso por WhatsApp.
+  const autoAsignado = await autoasignarPorEmpresa(ticket.id, usuario?.empresaId, actorId ?? usuarioId);
+  if (autoAsignado) ticket.tecnicoAsignadoId = autoAsignado;
 
   const anterior = dto.ticketAnteriorId
     ? await db.query.tickets.findFirst({ where: eq(tickets.id, dto.ticketAnteriorId) })

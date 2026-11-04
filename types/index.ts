@@ -24,6 +24,7 @@ export interface Empresa {
   id: string;
   nombre: string;
   activa: boolean;
+  tecnicoPredeterminadoId?: string | null;
 }
 
 export interface Usuario {

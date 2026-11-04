@@ -8,6 +8,8 @@ import { empresas } from '@/lib/db/schema';
 const updateEmpresaSchema = z.object({
   nombre: z.string().min(1).optional(),
   activa: z.boolean().optional(),
+  // null = sin técnico predeterminado.
+  tecnicoPredeterminadoId: z.string().uuid().nullable().optional(),
 });
 
 export async function PATCH(

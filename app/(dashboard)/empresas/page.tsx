@@ -15,6 +15,7 @@ import { z } from 'zod';
 
 const schema = z.object({
   nombre: z.string().min(2, 'Mínimo 2 caracteres'),
+  tecnicoPredeterminadoId: z.string().optional(),
 });
 
 type FormData = z.infer<typeof schema>;
@@ -28,6 +29,7 @@ export default function EmpresasPage() {
   const [creando, setCreando] = useState(false);
   const [editando, setEditando] = useState<Empresa | null>(null);
   const [guardando, setGuardando] = useState(false);
+  const [tecnicos, setTecnicos] = useState<{ id: string; nombre: string }[]>([]);
 
   const { register, handleSubmit, reset, formState: { errors } } = useForm<FormData>({
     resolver: zodResolver(schema),
@@ -47,6 +49,7 @@ export default function EmpresasPage() {
       return;
     }
     fetchEmpresas();
+    api.get('/usuarios/tecnicos').then((res) => setTecnicos(res.data)).catch(() => toast.error('Error al cargar técnicos'));
   }, []);
 
   const fetchEmpresas = async () => {
@@ -63,7 +66,7 @@ export default function EmpresasPage() {
   const onSubmit = async (data: FormData) => {
     setCreando(true);
     try {
-      await api.post('/empresas', data);
+      await api.post('/empresas', { ...data, tecnicoPredeterminadoId: data.tecnicoPredeterminadoId || null });
       toast.success('Empresa creada correctamente');
       reset();
       setModalOpen(false);
@@ -77,14 +80,14 @@ export default function EmpresasPage() {
 
   const abrirEdicion = (e: Empresa) => {
     setEditando(e);
-    resetEdit({ nombre: e.nombre });
+    resetEdit({ nombre: e.nombre, tecnicoPredeterminadoId: e.tecnicoPredeterminadoId ?? '' });
   };
 
   const onSubmitEdit = async (data: FormData) => {
     if (!editando) return;
     setGuardando(true);
     try {
-      await api.patch(`/empresas/${editando.id}`, data);
+      await api.patch(`/empresas/${editando.id}`, { ...data, tecnicoPredeterminadoId: data.tecnicoPredeterminadoId || null });
       toast.success('Empresa actualizada correctamente');
       setEditando(null);
       fetchEmpresas();
@@ -145,6 +148,7 @@ export default function EmpresasPage() {
             <thead>
               <tr className="border-b border-gray-800">
                 <th className="text-left text-gray-500 text-xs font-medium px-5 py-3 uppercase tracking-wider">Nombre</th>
+                <th className="text-left text-gray-500 text-xs font-medium px-5 py-3 uppercase tracking-wider">Técnico asignado</th>
                 <th className="text-left text-gray-500 text-xs font-medium px-5 py-3 uppercase tracking-wider">Estado</th>
                 <th className="text-left text-gray-500 text-xs font-medium px-5 py-3 uppercase tracking-wider">Acciones</th>
               </tr>
@@ -154,6 +158,9 @@ export default function EmpresasPage() {
                 <tr key={e.id} className="hover:bg-gray-800/30 transition">
                   <td className="px-5 py-4">
                     <span className="text-white text-sm font-medium">{e.nombre}</span>
+                  </td>
+                  <td className="px-5 py-4 text-sm text-gray-300">
+                    {tecnicos.find((t) => t.id === e.tecnicoPredeterminadoId)?.nombre ?? <span className="text-gray-600">Sin técnico</span>}
                   </td>
                   <td className="px-5 py-4">
                     <span className={`text-xs px-2 py-1 rounded-full font-medium ${
@@ -216,6 +223,20 @@ export default function EmpresasPage() {
                 {errors.nombre && <p className="text-red-400 text-xs mt-1">{errors.nombre.message}</p>}
               </div>
 
+              <div>
+                <label className="text-sm text-gray-400 mb-1 block">Técnico asignado automáticamente</label>
+                <select
+                  {...register('tecnicoPredeterminadoId')}
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-blue-500 text-sm"
+                >
+                  <option value="">Sin técnico (se asigna a mano)</option>
+                  {tecnicos.map((t) => (
+                    <option key={t.id} value={t.id}>{t.nombre}</option>
+                  ))}
+                </select>
+                <p className="text-gray-600 text-xs mt-1">Los tickets nuevos de esta empresa quedan asignados a este técnico.</p>
+              </div>
+
               <div className="flex gap-3 pt-2">
                 <button
                   type="button"
@@ -259,6 +280,20 @@ export default function EmpresasPage() {
                   className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 text-sm"
                 />
                 {editErrors.nombre && <p className="text-red-400 text-xs mt-1">{editErrors.nombre.message}</p>}
+              </div>
+
+              <div>
+                <label className="text-sm text-gray-400 mb-1 block">Técnico asignado automáticamente</label>
+                <select
+                  {...registerEdit('tecnicoPredeterminadoId')}
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-blue-500 text-sm"
+                >
+                  <option value="">Sin técnico (se asigna a mano)</option>
+                  {tecnicos.map((t) => (
+                    <option key={t.id} value={t.id}>{t.nombre}</option>
+                  ))}
+                </select>
+                <p className="text-gray-600 text-xs mt-1">Los tickets nuevos de esta empresa quedan asignados a este técnico.</p>
               </div>
 
               <div className="flex gap-3 pt-2">

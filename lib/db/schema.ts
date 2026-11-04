@@ -8,6 +8,7 @@ import {
   timestamp,
   varchar,
   date,
+  type AnyPgColumn,
 } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 
@@ -15,6 +16,8 @@ export const empresas = pgTable('empresas', {
   id: uuid('id').defaultRandom().primaryKey(),
   nombre: varchar('nombre', { length: 255 }).notNull(),
   activa: boolean('activa').notNull().default(true),
+  // Los tickets nuevos de esta empresa se asignan solos a este técnico.
+  tecnicoPredeterminadoId: uuid('tecnicoPredeterminadoId').references((): AnyPgColumn => usuarios.id),
 });
 
 export const usuarios = pgTable('usuarios', {

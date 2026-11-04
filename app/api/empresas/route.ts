@@ -7,6 +7,7 @@ import { empresas } from '@/lib/db/schema';
 
 const createEmpresaSchema = z.object({
   nombre: z.string().min(1),
+  tecnicoPredeterminadoId: z.string().uuid().nullable().optional(),
 });
 
 export async function GET(request: NextRequest) {
