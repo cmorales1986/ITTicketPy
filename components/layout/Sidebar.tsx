@@ -6,7 +6,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useAuthStore } from '@/store/auth.store';
 import {
   LayoutDashboard, Ticket, Kanban,
-  Users, Tag, Building2, LogOut, ChevronRight, Menu, X, ClipboardList,
+  Users, Tag, Building2, LogOut, ChevronRight, Menu, X, ClipboardList, MessageCircle,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -18,6 +18,7 @@ const navItems = [
   { href: '/categorias', label: 'Categorías', icon: Tag, roles: [2, 3] },
   { href: '/empresas', label: 'Empresas', icon: Building2, roles: [2, 3] },
   { href: '/reportes', label: 'Reportes', icon: ClipboardList, roles: [2, 3] },
+  { href: '/whatsapp', label: 'WhatsApp', icon: MessageCircle, roles: [2, 3] },
 ];
 
 export default function Sidebar() {
