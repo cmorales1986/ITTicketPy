@@ -1,7 +1,7 @@
 import { after } from 'next/server';
-import { eq } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, ne } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { usuarios } from '@/lib/db/schema';
+import { empresas, usuarios } from '@/lib/db/schema';
 
 async function sendWhatsapp(numero: string, body: string) {
   const url = process.env.WUZAPI_URL;
@@ -176,4 +176,43 @@ export async function notificarNuevoMensajeChat(
   contenido: string,
 ) {
   sendWhatsappConSaludoDeferred(numero, `${autorNombre} respondió tu ticket ${ticketNumero}: ${contenido}`);
+}
+
+const PRIORIDAD_AVISO: Record<number, string> = { 1: 'Baja', 2: 'Media', 3: 'Alta', 4: 'Crítica' };
+
+// Avisa por WhatsApp a los administradores activos (roles 2 y 3) que entró un
+// ticket nuevo. `excluirUsuarioId` evita avisarle a quien lo cargó a mano desde
+// el portal, que ya lo sabe.
+export async function notificarEquipoTicketNuevo(
+  ticket: { id: string; numero: string; titulo: string; prioridad: number; empresaId: string | null },
+  solicitanteNombre: string,
+  excluirUsuarioId?: string,
+) {
+  try {
+    const destinatarios = await db.query.usuarios.findMany({
+      where: and(
+        inArray(usuarios.rol, [2, 3]),
+        eq(usuarios.activo, true),
+        isNotNull(usuarios.numeroWhatsApp),
+        excluirUsuarioId ? ne(usuarios.id, excluirUsuarioId) : undefined,
+      ),
+    });
+    if (destinatarios.length === 0) return;
+
+    const empresa = ticket.empresaId
+      ? await db.query.empresas.findFirst({ where: eq(empresas.id, ticket.empresaId) })
+      : null;
+    const quien = empresa ? `${solicitanteNombre} (${empresa.nombre})` : solicitanteNombre;
+    const cuerpo =
+      `🆕 Nuevo ticket ${ticket.numero} de ${quien}\n` +
+      `${ticket.titulo}\n` +
+      `Prioridad: ${PRIORIDAD_AVISO[ticket.prioridad] ?? 'Media'}\n\n` +
+      `${process.env.APP_URL}/tickets/${ticket.id}`;
+
+    for (const d of destinatarios) {
+      if (d.numeroWhatsApp) sendWhatsappDeferred(d.numeroWhatsApp, cuerpo);
+    }
+  } catch (err) {
+    console.error('Error avisando al equipo del ticket nuevo:', err);
+  }
 }

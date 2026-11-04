@@ -3,6 +3,7 @@ import { db } from '@/lib/db';
 import { tickets, comentarios, historial, usuarios, adjuntos, mensajesChat, aprobaciones } from '@/lib/db/schema';
 import {
   notificarTicketCreado,
+  notificarEquipoTicketNuevo,
   notificarTicketAsignado,
   notificarTicketCerrado,
   notificarTicketResuelto,
@@ -357,6 +358,10 @@ export async function createTicket(
     const link = `${process.env.APP_URL}/seguimiento/${ticket.id}`;
     await notificarTicketCreado(usuario.numeroWhatsApp, numero, usuario.nombre, link, sugerenciaIA);
   }
+
+  // Aviso a los administradores. Si lo cargó un administrador a mano desde el
+  // portal (actorId), no se le avisa a él.
+  await notificarEquipoTicketNuevo(ticket, usuario?.nombre ?? 'Usuario', actorId);
 
   return ticket;
 }
