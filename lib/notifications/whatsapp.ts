@@ -90,6 +90,13 @@ export async function notificarBienvenida(numero: string, nombre?: string) {
   sendWhatsappConSaludoDeferred(numero, cuerpo);
 }
 
+// Respuesta a un saludo suelto ("hola"): invita a contar el problema sin crear
+// un ticket vacío.
+export async function notificarRespuestaSaludo(numero: string, nombre?: string) {
+  const cuerpo = `¿Cómo estás${nombre ? ` *${nombre}*` : ''}? Soy el asistente de soporte técnico. ¿Tenés algún problema o necesitás algo? Contanos brevemente (qué sistema es y qué te pasa) y te creamos un ticket enseguida.`;
+  sendWhatsappConSaludoDeferred(numero, cuerpo);
+}
+
 export async function notificarTicketCreado(
   numero: string,
   ticketNumero: string,

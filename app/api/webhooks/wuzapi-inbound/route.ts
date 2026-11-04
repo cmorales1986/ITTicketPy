@@ -23,7 +23,7 @@ import {
   guardarConfirmacionPendiente,
   limpiarConfirmacionPendiente,
 } from '@/lib/usuarios/find-or-create';
-import { esSolicitudDeSoporte } from '@/lib/ai/clasificar-mensaje';
+import { clasificarMensaje } from '@/lib/ai/clasificar-mensaje';
 import { generarSugerencia } from '@/lib/ai/sugerir-solucion';
 import { analizarTicket } from '@/lib/ai/analizar-ticket';
 import { esMismoProblema } from '@/lib/ai/es-mismo-problema';
@@ -31,6 +31,7 @@ import { interpretarConformidad } from '@/lib/ai/conformidad-whatsapp';
 import { ESTADO } from '@/lib/tickets/estados';
 import {
   notificarBienvenida,
+  notificarRespuestaSaludo,
   notificarEncuestaRecibida,
   notificarPreguntaAdicional,
   notificarConfirmarContexto,
@@ -416,8 +417,12 @@ export async function POST(request: NextRequest) {
   // Mensaje fresco (no es continuación de nada pendiente): clasificamos
   // antes de avanzar, porque también puede estar saludando u otra consulta
   // ajena a soporte.
-  const esSoporte = await esSolicitudDeSoporte(textoEfectivo);
-  if (!esSoporte) {
+  const clase = await clasificarMensaje(textoEfectivo);
+  if (clase === 'SALUDO') {
+    notificarRespuestaSaludo(phone, usuarioExistente.nombre);
+    return NextResponse.json({ ok: true });
+  }
+  if (clase !== 'SOPORTE') {
     return NextResponse.json({ ok: true });
   }
 
